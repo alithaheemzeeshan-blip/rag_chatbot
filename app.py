@@ -1,13 +1,15 @@
 import streamlit as st
 import openai
 from streamlit_chat import message
+from st_mic_recorder import mic_recorder
+import time
 
 # ---------------- PAGE SETTINGS ----------------
 st.set_page_config(page_title="Voice ChatGPT", page_icon="🎤", layout="centered")
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# ---------------- CUSTOM CSS ----------------
+# ---------------- CSS ----------------
 st.markdown("""
 <style>
 .chat-box {
@@ -22,42 +24,15 @@ st.markdown("""
     background: #3A3B3C;
     color: white;
 }
-.voice-button {
-    background-color:#4a90e2;
-    padding:10px 20px;
+.clear-button {
+    background:#ff5555;
+    padding:7px 15px;
     color:white;
-    border-radius:10px;
+    border-radius:8px;
     cursor:pointer;
-    margin-top:10px;
-    display:inline-block;
 }
 </style>
 """, unsafe_allow_html=True)
-
-# ---------------- BROWSER VOICE INPUT JS ----------------
-voice_js = """
-<script>
-let recognition;
-function startRecognition() {
-    const textarea = window.parent.document.querySelector('textarea');
-    if (!('webkitSpeechRecognition' in window)) {
-        alert("Your browser does not support Speech Recognition.");
-    } else {
-        recognition = new webkitSpeechRecognition();
-        recognition.continuous = false;
-        recognition.interimResults = false;
-        recognition.lang = "en-US";
-        recognition.start();
-        recognition.onresult = function(event) {
-            const text = event.results[0][0].transcript;
-            textarea.value = text;
-            textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        };
-    }
-}
-</script>
-<div class="voice-button" onclick="startRecognition()">🎤 Speak</div>
-"""
 
 # ---------------- GPT FUNCTION ----------------
 def ask_gpt(prompt):
@@ -67,47 +42,76 @@ def ask_gpt(prompt):
     )
     return response.choices[0].message.content
 
-# ---------------- SESSION STATE INIT ----------------
+# ---------------- SESSION STATE ----------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
-
 if "last_input" not in st.session_state:
     st.session_state.last_input = ""
-
 if "input_reset" not in st.session_state:
     st.session_state.input_reset = ""
 
-# ---------------- TITLE ----------------
-st.title("🎤 Voice ChatGPT (Browser Voice Support)")
+# ---------------- TITLE + CLEAR BUTTON ----------------
+st.title("🎤 Voice ChatGPT (Voice + Typing Animation)")
+
+if st.button("🧹 Clear Chat"):
+    st.session_state.messages = []
+    st.session_state.last_input = ""
+    st.rerun()
+
 st.markdown('<div class="chat-box">', unsafe_allow_html=True)
+
 
 # ---------------- SHOW CHAT HISTORY ----------------
 for i, msg in enumerate(st.session_state.messages):
     message(msg["content"], is_user=(msg["role"] == "user"), key=f"msg_{i}")
 
-# ---------------- INPUT BOX ----------------
-user_text = st.text_input("Ask me something:", value=st.session_state.input_reset)
-st.session_state.input_reset = ""  # clear box after displaying
+# ---------------- TEXT INPUT ----------------
+user_text = st.text_input("Ask me something:", value=st.session_state.get("input_reset", ""))
+st.session_state.input_reset = ""
 
-# ---------------- VOICE BUTTON ----------------
-st.components.v1.html(voice_js, height=80)
 
-# ---------------- PROCESS USER MESSAGE ----------------
-if user_text.strip() and user_text != st.session_state.last_input:
+# ---------------- MICROPHONE INPUT ----------------
+audio = mic_recorder(start_prompt="🎤 Speak", stop_prompt="🛑 Stop", just_once=True)
 
-    st.session_state.last_input = user_text  # prevent duplicate sends
+if audio:
+    import speech_recognition as sr
+    r = sr.Recognizer()
 
-    # Add user message
-    st.session_state.messages.append({"role": "user", "content": user_text})
+    with sr.AudioFile(audio['bytes']) as source:
+        mic_audio = r.record(source)
+        try:
+            spoken_text = r.recognize_google(mic_audio)
+        except:
+            spoken_text = "I could not understand your voice."
 
-    # Get assistant response
-    bot_reply = ask_gpt(user_text)
+    st.session_state.last_input = spoken_text
+    st.session_state.messages.append({"role": "user", "content": spoken_text})
 
-    # Add assistant message
+    # Typing animation placeholder
+    with st.spinner("Assistant is typing…"):
+        time.sleep(1)
+
+    bot_reply = ask_gpt(spoken_text)
     st.session_state.messages.append({"role": "assistant", "content": bot_reply})
 
-    # Reset input + rerun
+    st.rerun()
+
+
+# ---------------- PROCESS TEXT INPUT ----------------
+if user_text.strip() and user_text != st.session_state.last_input:
+
+    st.session_state.last_input = user_text
+    st.session_state.messages.append({"role": "user", "content": user_text})
+
+    # ---- Typing animation ----
+    with st.spinner("Assistant is typing…"):
+        time.sleep(1)
+
+    bot_reply = ask_gpt(user_text)
+    st.session_state.messages.append({"role": "assistant", "content": bot_reply})
+
     st.session_state.input_reset = ""
     st.rerun()
+
 
 st.markdown('</div>', unsafe_allow_html=True)
