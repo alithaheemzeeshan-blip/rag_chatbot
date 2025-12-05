@@ -2,11 +2,12 @@ import streamlit as st
 import openai
 from streamlit_chat import message
 
+# ---------------- PAGE SETTINGS ----------------
 st.set_page_config(page_title="Voice ChatGPT", page_icon="🎤", layout="centered")
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-# ------- CUSTOM UI CSS --------
+# ---------------- CUSTOM CSS ----------------
 st.markdown("""
 <style>
 .chat-box {
@@ -33,14 +34,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ------- JAVASCRIPT FOR FULL BROWSER VOICE INPUT --------
+# ---------------- BROWSER VOICE INPUT JS ----------------
 voice_js = """
 <script>
 let recognition;
-
 function startRecognition() {
     const textarea = window.parent.document.querySelector('textarea');
-
     if (!('webkitSpeechRecognition' in window)) {
         alert("Your browser does not support Speech Recognition.");
     } else {
@@ -48,9 +47,7 @@ function startRecognition() {
         recognition.continuous = false;
         recognition.interimResults = false;
         recognition.lang = "en-US";
-
         recognition.start();
-
         recognition.onresult = function(event) {
             const text = event.results[0][0].transcript;
             textarea.value = text;
@@ -59,11 +56,10 @@ function startRecognition() {
     }
 }
 </script>
-
 <div class="voice-button" onclick="startRecognition()">🎤 Speak</div>
 """
 
-# GPT function
+# ---------------- GPT FUNCTION ----------------
 def ask_gpt(prompt):
     response = openai.chat.completions.create(
         model="gpt-4o-mini",
@@ -71,29 +67,47 @@ def ask_gpt(prompt):
     )
     return response.choices[0].message.content
 
-# Session state
+# ---------------- SESSION STATE INIT ----------------
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# UI
+if "last_input" not in st.session_state:
+    st.session_state.last_input = ""
+
+if "input_reset" not in st.session_state:
+    st.session_state.input_reset = ""
+
+# ---------------- TITLE ----------------
 st.title("🎤 Voice ChatGPT (Browser Voice Support)")
 st.markdown('<div class="chat-box">', unsafe_allow_html=True)
 
-# SHOW CHAT HISTORY WITH UNIQUE KEYS
+# ---------------- SHOW CHAT HISTORY ----------------
 for i, msg in enumerate(st.session_state.messages):
     message(msg["content"], is_user=(msg["role"] == "user"), key=f"msg_{i}")
 
-# TEXT INPUT
-user_text = st.text_input("Ask me something:")
+# ---------------- INPUT BOX ----------------
+user_text = st.text_input("Ask me something:", value=st.session_state.input_reset)
+st.session_state.input_reset = ""  # clear box after displaying
 
-# Voice input button
+# ---------------- VOICE BUTTON ----------------
 st.components.v1.html(voice_js, height=80)
 
-# If user sends text
-if user_text:
+# ---------------- PROCESS USER MESSAGE ----------------
+if user_text.strip() and user_text != st.session_state.last_input:
+
+    st.session_state.last_input = user_text  # prevent duplicate sends
+
+    # Add user message
     st.session_state.messages.append({"role": "user", "content": user_text})
+
+    # Get assistant response
     bot_reply = ask_gpt(user_text)
+
+    # Add assistant message
     st.session_state.messages.append({"role": "assistant", "content": bot_reply})
+
+    # Reset input + rerun
+    st.session_state.input_reset = ""
     st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
