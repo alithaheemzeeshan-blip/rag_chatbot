@@ -33,11 +33,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
 # ------- JAVASCRIPT FOR FULL BROWSER VOICE INPUT --------
 voice_js = """
 <script>
-let recognizing = false;
 let recognition;
 
 function startRecognition() {
@@ -53,22 +51,10 @@ function startRecognition() {
 
         recognition.start();
 
-        recognition.onstart = function() {
-            console.log("Voice recognition started");
-        };
-
         recognition.onresult = function(event) {
             const text = event.results[0][0].transcript;
             textarea.value = text;
             textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        };
-
-        recognition.onerror = function(event) {
-            console.log("Error: " + event.error);
-        };
-
-        recognition.onend = function() {
-            console.log("Voice recognition ended");
         };
     }
 }
@@ -85,11 +71,9 @@ def ask_gpt(prompt):
     )
     return response.choices[0].message.content
 
-
 # ------- SESSION STATE --------
 if "messages" not in st.session_state:
     st.session_state.messages = []
-
 
 # ------- UI --------
 st.title("🎤 Voice ChatGPT (Full Browser Voice Support)")
@@ -99,7 +83,6 @@ st.markdown('<div class="chat-box">', unsafe_allow_html=True)
 # Show chat history
 for msg in st.session_state.messages:
     message(msg["content"], is_user=(msg["role"] == "user"))
-
 
 # ------- TEXT INPUT --------
 user_text = st.text_input("Ask me something:")
@@ -111,6 +94,6 @@ if user_text:
     st.session_state.messages.append({"role": "user", "content": user_text})
     bot_reply = ask_gpt(user_text)
     st.session_state.messages.append({"role": "assistant", "content": bot_reply})
-    st.experimental_rerun()
+    st.rerun()
 
 st.markdown('</div>', unsafe_allow_html=True)
