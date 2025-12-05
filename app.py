@@ -1,117 +1,96 @@
 import streamlit as st
-import openai
-from streamlit_chat import message
-from st_mic_recorder import mic_recorder
-import time
+from openai import OpenAI
 
-# ---------------- PAGE SETTINGS ----------------
-st.set_page_config(page_title="Voice ChatGPT", page_icon="🎤", layout="centered")
+# Load API key from Streamlit secrets
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+st.set_page_config(page_title="AI Chatbot", layout="wide")
 
-# ---------------- CSS ----------------
-st.markdown("""
-<style>
-.chat-box {
-    background-color: #202123;
-    padding: 20px;
-    border-radius: 15px;
-    width: 100%;
-    max-width: 750px;
-    margin: auto;
-}
-.stTextInput>div>div>input {
-    background: #3A3B3C;
-    color: white;
-}
-.clear-button {
-    background:#ff5555;
-    padding:7px 15px;
-    color:white;
-    border-radius:8px;
-    cursor:pointer;
-}
-</style>
-""", unsafe_allow_html=True)
+# --- Title ---
+st.markdown("<h1 style='text-align:center;'>🤖 AI RAG Chatbot</h1>", unsafe_allow_html=True)
+st.write("")
 
-# ---------------- GPT FUNCTION ----------------
-def ask_gpt(prompt):
-    response = openai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content
-
-# ---------------- SESSION STATE ----------------
+# --- Initialize Chat History ---
 if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "last_input" not in st.session_state:
-    st.session_state.last_input = ""
-if "input_reset" not in st.session_state:
-    st.session_state.input_reset = ""
+    st.session_state["messages"] = []
 
-# ---------------- TITLE + CLEAR BUTTON ----------------
-st.title("🎤 Voice ChatGPT (Voice + Typing Animation)")
+# --- CHAT DISPLAY ---
+for msg in st.session_state["messages"]:
+    with st.chat_message("user" if msg["role"] == "user" else "assistant"):
+        st.write(msg["content"])
 
-if st.button("🧹 Clear Chat"):
-    st.session_state.messages = []
-    st.session_state.last_input = ""
-    st.rerun()
+# ============================================================
+# 🎤 VOICE INPUT SECTION
+# ============================================================
 
-st.markdown('<div class="chat-box">', unsafe_allow_html=True)
+st.subheader("🎤 Speak your question:")
 
+audio = st.audio_input("Click to record...")
 
-# ---------------- SHOW CHAT HISTORY ----------------
-for i, msg in enumerate(st.session_state.messages):
-    message(msg["content"], is_user=(msg["role"] == "user"), key=f"msg_{i}")
+user_voice_text = ""
 
-# ---------------- TEXT INPUT ----------------
-user_text = st.text_input("Ask me something:", value=st.session_state.get("input_reset", ""))
-st.session_state.input_reset = ""
+if audio is not None:
+    st.success("Audio recorded! Converting to text...")
 
+    transcript = client.audio.transcriptions.create(
+        model="whisper-1",
+        file=audio.getvalue()
+    )
 
-# ---------------- MICROPHONE INPUT ----------------
-audio = mic_recorder(start_prompt="🎤 Speak", stop_prompt="🛑 Stop", just_once=True)
+    user_voice_text = transcript.text
+    st.info(f"🗣️ You said: **{user_voice_text}**")
 
-if audio:
-    import speech_recognition as sr
-    r = sr.Recognizer()
+# ============================================================
+# ⌨️ TEXT INPUT WITH AUTO-CLEAR
+# ============================================================
 
-    with sr.AudioFile(audio['bytes']) as source:
-        mic_audio = r.record(source)
-        try:
-            spoken_text = r.recognize_google(mic_audio)
-        except:
-            spoken_text = "I could not understand your voice."
+if "text_input" not in st.session_state:
+    st.session_state["text_input"] = ""
 
-    st.session_state.last_input = spoken_text
-    st.session_state.messages.append({"role": "user", "content": spoken_text})
+def send_text():
+    st.session_state["submitted_text"] = st.session_state["text_input"]
+    st.session_state["text_input"] = ""  # CLEAR after submit
 
-    # Typing animation placeholder
-    with st.spinner("Assistant is typing…"):
-        time.sleep(1)
+user_text = st.text_input(
+    "Ask me something:",
+    key="text_input",
+    on_change=send_text
+)
 
-    bot_reply = ask_gpt(spoken_text)
-    st.session_state.messages.append({"role": "assistant", "content": bot_reply})
+user_text = st.session_state.get("submitted_text", "")
 
-    st.rerun()
+# ============================================================
+# DETERMINE FINAL USER MESSAGE (VOICE > TEXT)
+# ============================================================
 
+final_user_message = ""
 
-# ---------------- PROCESS TEXT INPUT ----------------
-if user_text.strip() and user_text != st.session_state.last_input:
+if user_voice_text:
+    final_user_message = user_voice_text
+elif user_text:
+    final_user_message = user_text
 
-    st.session_state.last_input = user_text
-    st.session_state.messages.append({"role": "user", "content": user_text})
+# ============================================================
+# PROCESS MESSAGE WITH OPENAI
+# ============================================================
 
-    # ---- Typing animation ----
-    with st.spinner("Assistant is typing…"):
-        time.sleep(1)
+if final_user_message:
+    # Add to chat history
+    st.session_state["messages"].append({"role": "user", "content": final_user_message})
 
-    bot_reply = ask_gpt(user_text)
-    st.session_state.messages.append({"role": "assistant", "content": bot_reply})
+    with st.chat_message("user"):
+        st.write(final_user_message)
 
-    st.session_state.input_reset = ""
-    st.rerun()
+    # Query AI
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=st.session_state["messages"]
+    )
 
+    bot_reply = response.choices[0].message["content"]
 
-st.markdown('</div>', unsafe_allow_html=True)
+    # Save assistant reply
+    st.session_state["messages"].append({"role": "assistant", "content": bot_reply})
+
+    with st.chat_message("assistant"):
+        st.write(bot_reply)
