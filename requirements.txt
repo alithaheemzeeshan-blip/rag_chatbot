@@ -2,3 +2,5 @@ streamlit
 openai
 streamlit-chat
 streamlit-mic-recorder
+SpeechRecognition
+pydub
