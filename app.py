@@ -1,96 +1,113 @@
 import streamlit as st
 from openai import OpenAI
 
-# Load API key from Streamlit secrets
+# Load API key from Streamlit Secrets
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 st.set_page_config(page_title="AI Chatbot", layout="wide")
 
-# --- Title ---
-st.markdown("<h1 style='text-align:center;'>🤖 AI RAG Chatbot</h1>", unsafe_allow_html=True)
-st.write("")
+# ---------------------------
+#   INITIAL SETUP
+# ---------------------------
+st.markdown(
+    "<h1 style='text-align:center;'>🤖 AI Voice + Text Chatbot</h1>",
+    unsafe_allow_html=True
+)
 
-# --- Initialize Chat History ---
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
 
-# --- CHAT DISPLAY ---
+# ---------------------------
+#   DISPLAY CHAT HISTORY
+# ---------------------------
 for msg in st.session_state["messages"]:
-    with st.chat_message("user" if msg["role"] == "user" else "assistant"):
+    with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# ============================================================
-# 🎤 VOICE INPUT SECTION
-# ============================================================
+# ---------------------------
+#   VOICE INPUT
+# ---------------------------
 
-st.subheader("🎤 Speak your question:")
+st.subheader("🎤 Speak your question")
 
-audio = st.audio_input("Click to record...")
+audio_data = st.audio_input("Click to record...")
 
-user_voice_text = ""
+voice_text = ""
 
-if audio is not None:
-    st.success("Audio recorded! Converting to text...")
+if audio_data is not None:
+    st.success("Audio recorded — Converting to text...")
 
     transcript = client.audio.transcriptions.create(
         model="whisper-1",
-        file=audio.getvalue()
+        file=audio_data.getvalue()
     )
 
-    user_voice_text = transcript.text
-    st.info(f"🗣️ You said: **{user_voice_text}**")
+    voice_text = transcript.text
+    st.info(f"🗣️ You said: **{voice_text}**")
 
-# ============================================================
-# ⌨️ TEXT INPUT WITH AUTO-CLEAR
-# ============================================================
+
+# ---------------------------
+#   TEXT INPUT WITH AUTO-CLEAR
+# ---------------------------
 
 if "text_input" not in st.session_state:
     st.session_state["text_input"] = ""
 
-def send_text():
+def submit_text():
     st.session_state["submitted_text"] = st.session_state["text_input"]
-    st.session_state["text_input"] = ""  # CLEAR after submit
+    st.session_state["text_input"] = ""   # clear box automatically
 
-user_text = st.text_input(
-    "Ask me something:",
+st.text_input(
+    "Type a message:",
     key="text_input",
-    on_change=send_text
+    on_change=submit_text
 )
 
-user_text = st.session_state.get("submitted_text", "")
+text_message = st.session_state.get("submitted_text", "")
 
-# ============================================================
-# DETERMINE FINAL USER MESSAGE (VOICE > TEXT)
-# ============================================================
+# ---------------------------
+#   DETERMINE USER MESSAGE
+# ---------------------------
 
 final_user_message = ""
 
-if user_voice_text:
-    final_user_message = user_voice_text
-elif user_text:
-    final_user_message = user_text
+if voice_text:
+    final_user_message = voice_text
 
-# ============================================================
-# PROCESS MESSAGE WITH OPENAI
-# ============================================================
+elif text_message:
+    final_user_message = text_message
+
+
+
+# ---------------------------
+#   PROCESS MESSAGE (AI RESPONSE)
+# ---------------------------
 
 if final_user_message:
-    # Add to chat history
-    st.session_state["messages"].append({"role": "user", "content": final_user_message})
 
+    # Add user message to session history
+    st.session_state["messages"].append(
+        {"role": "user", "content": final_user_message}
+    )
+
+    # Display user message
     with st.chat_message("user"):
         st.write(final_user_message)
 
-    # Query AI
+    # Request OpenAI
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=st.session_state["messages"]
     )
 
-    bot_reply = response.choices[0].message["content"]
+    # ✔ FIXED RESPONSE FORMAT
+    bot_reply = response.choices[0].message.content
 
     # Save assistant reply
-    st.session_state["messages"].append({"role": "assistant", "content": bot_reply})
+    st.session_state["messages"].append(
+        {"role": "assistant", "content": bot_reply}
+    )
 
+    # Display assistant message
     with st.chat_message("assistant"):
         st.write(bot_reply)
