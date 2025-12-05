@@ -63,7 +63,7 @@ function startRecognition() {
 <div class="voice-button" onclick="startRecognition()">🎤 Speak</div>
 """
 
-# ------- GPT FUNCTION --------
+# GPT function
 def ask_gpt(prompt):
     response = openai.chat.completions.create(
         model="gpt-4o-mini",
@@ -71,25 +71,25 @@ def ask_gpt(prompt):
     )
     return response.choices[0].message.content
 
-# ------- SESSION STATE --------
+# Session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# ------- UI --------
-st.title("🎤 Voice ChatGPT (Full Browser Voice Support)")
-
+# UI
+st.title("🎤 Voice ChatGPT (Browser Voice Support)")
 st.markdown('<div class="chat-box">', unsafe_allow_html=True)
 
-# Show chat history
-for msg in st.session_state.messages:
-    message(msg["content"], is_user=(msg["role"] == "user"))
+# SHOW CHAT HISTORY WITH UNIQUE KEYS
+for i, msg in enumerate(st.session_state.messages):
+    message(msg["content"], is_user=(msg["role"] == "user"), key=f"msg_{i}")
 
-# ------- TEXT INPUT --------
+# TEXT INPUT
 user_text = st.text_input("Ask me something:")
 
-# Voice Button Added Using HTML + JS
+# Voice input button
 st.components.v1.html(voice_js, height=80)
 
+# If user sends text
 if user_text:
     st.session_state.messages.append({"role": "user", "content": user_text})
     bot_reply = ask_gpt(user_text)
