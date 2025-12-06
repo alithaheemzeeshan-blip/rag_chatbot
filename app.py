@@ -1,152 +1,203 @@
+# =========================================
+#     Z E E S H A N   K A   C H A T B O T
+#     Professional RAG AI Assistant
+# =========================================
+
 import streamlit as st
+import time
 from openai import OpenAI
+import os
+from PyPDF2 import PdfReader
 
-# Load API key safely
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
-st.set_page_config(page_title="Zeeshan Ka Chatbot", layout="wide")
-
-# ---------------------------
-#   CUSTOM UI STYLING
-# ---------------------------
-st.markdown("""
-    <style>
-        body {
-            background-color: #0E1117;
-        }
-        .stApp {
-            background-color: #0E1117;
-        }
-        .main-title {
-            font-size: 42px;
-            font-weight: 800;
-            text-align: center;
-            color: #00C4FF;
-            margin-top: -20px;
-            text-shadow: 0px 0px 15px rgba(0, 196, 255, 0.6);
-        }
-        .sub-title {
-            font-size: 20px;
-            text-align: center;
-            color: #cccccc;
-            margin-bottom: 30px;
-        }
-        .chat-bubble-user {
-            background-color: #1F2937;
-            padding: 12px;
-            border-radius: 12px;
-            color: white;
-            margin: 6px 0;
-        }
-        .chat-bubble-bot {
-            background-color: #111827;
-            padding: 12px;
-            border-radius: 12px;
-            color: white;
-            border-left: 3px solid #00C4FF;
-            margin: 6px 0;
-        }
-    </style>
-""", unsafe_allow_html=True)
-
-st.markdown("<h1 class='main-title'>🤖 Zeeshan Ka Chatbot</h1>", unsafe_allow_html=True)
-st.markdown("<p class='sub-title'>Aap ka personal AI assistant — hamesha madad ko tayyar!</p>", unsafe_allow_html=True)
-
-# ---------------------------
-#   CHAT MEMORY
-# ---------------------------
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-
-# ---------------------------
-#   DISPLAY CHAT HISTORY (styled)
-# ---------------------------
-for msg in st.session_state["messages"]:
-    with st.chat_message(msg["role"]):
-        bubble = "chat-bubble-user" if msg["role"] == "user" else "chat-bubble-bot"
-        st.markdown(f"<div class='{bubble}'>{msg['content']}</div>", unsafe_allow_html=True)
-
-# ---------------------------
-#   🎤 VOICE INPUT (SAFE)
-# ---------------------------
-st.subheader("🎤 Aap bol kar bhi sawaal pooch saktay hain:")
-
-audio_data = st.audio_input("Record your voice:")
-
-voice_text = ""
-
-if audio_data is not None:
-    st.success("Audio received — processing...")
-
-    audio_bytes = audio_data.getvalue()
-
-    # Too long audio protection
-    if len(audio_bytes) > 1_500_000:
-        st.warning("⚠️ Audio bohat lamba hai! Please 10 seconds se kam record karein.")
-    else:
-        try:
-            transcript = client.audio.transcriptions.create(
-                model="gpt-4o-mini-transcribe",
-                file=audio_bytes
-            )
-            voice_text = transcript.text
-            st.info(f"🗣️ Aap ne kaha: **{voice_text}**")
-
-        except Exception:
-            st.error("⚠️ Voice transcription failed due to rate limit or credit issue.")
-            voice_text = ""
-
-# ---------------------------
-#   TEXT INPUT (AUTO CLEAR)
-# ---------------------------
-if "text_input" not in st.session_state:
-    st.session_state["text_input"] = ""
-
-def submit_text():
-    st.session_state["submitted_text"] = st.session_state["text_input"]
-    st.session_state["text_input"] = "" 
-
-st.text_input(
-    "✍️ Type your message here:",
-    key="text_input",
-    on_change=submit_text
+# ------------------------------
+# STREAMLIT CONFIG + UI DESIGN
+# ------------------------------
+st.set_page_config(
+    page_title="Zeeshan Ka Chatbot",
+    page_icon="🤖",
+    layout="wide"
 )
 
-text_message = st.session_state.get("submitted_text", "")
+# -------- Custom CSS (Animations + UI) ----------
+st.markdown("""
+<style>
 
-# Decide final user message
-final_user_message = voice_text if voice_text else text_message
+    body {
+        background-color: #0e1117 !important;
+    }
 
-# ---------------------------
-#   RESPONSE GENERATION
-# ---------------------------
-if final_user_message:
+    .main {
+        background-color: #0e1117;
+        color: white;
+    }
 
-    # Save user message
-    st.session_state["messages"].append(
-        {"role": "user", "content": final_user_message}
+    .title_text {
+        font-size: 42px;
+        font-weight: bold;
+        color: #3b82f6;
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    .bot_msg {
+        background-color: #111827;
+        padding: 14px;
+        border-radius: 12px;
+        border-left: 4px solid #3b82f6;
+        width: fit-content;
+        margin-bottom: 10px;
+
+        /* Animation */
+        animation: fadeIn 0.6s ease-in-out;
+    }
+
+    .user_msg {
+        background-color: #1f2937;
+        padding: 14px;
+        border-radius: 12px;
+        width: fit-content;
+        margin-bottom: 10px;
+        margin-left: auto;
+
+        animation: fadeIn 0.6s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+        0% { opacity: 0; transform: translateY(10px); }
+        100% { opacity: 1; transform: translateY(0px); }
+    }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #111827;
+        color: white;
+        padding: 20px;
+    }
+
+    .sidebar_title {
+        font-size: 22px;
+        font-weight: bold;
+        color: #3b82f6;
+        margin-bottom: 20px;
+    }
+
+</style>
+""", unsafe_allow_html=True)
+
+# -------------------
+# HEADER TITLE
+# -------------------
+st.markdown("<div class='title_text'>🤖 Zeeshan Ka Chatbot — Corporate AI Assistant</div>",
+            unsafe_allow_html=True)
+
+# ------------------------------
+# SIDEBAR BRANDING
+# ------------------------------
+with st.sidebar:
+    st.markdown("<div class='sidebar_title'>Zeeshan AI Assistant</div>", unsafe_allow_html=True)
+    st.image("https://i.postimg.cc/6qk8njLC/robot-tech.png", use_column_width=True)
+    st.write("This chatbot uses RAG + AI to answer company-related questions.")
+    st.write("Powered by OpenAI + PDF Knowledge Base.")
+
+
+# ------------------------------
+# LOAD PDF KNOWLEDGE (RAG)
+# ------------------------------
+def load_pdf_text():
+    folder = "data"
+    text = ""
+
+    for file in os.listdir(folder):
+        if file.endswith(".pdf"):
+            pdf = PdfReader(os.path.join(folder, file))
+            for page in pdf.pages:
+                text += page.extract_text() + "\n"
+    return text
+
+
+knowledge_base = load_pdf_text()
+
+
+# ------------------------------
+# AI CLIENT
+# ------------------------------
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  # OR st.secrets["OPENAI_API_KEY"]
+
+
+# ------------------------------
+# RAG + ChatGPT Response
+# ------------------------------
+def generate_answer(question):
+    prompt = f"""
+You are Zeeshan's Corporate AI Assistant.
+Answer using the policy and information below.
+
+--- COMPANY MANUAL ---
+{knowledge_base}
+-----------------------
+
+USER QUESTION:
+{question}
+
+Give a helpful, professional answer.
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}]
     )
 
-    # Show user bubble
-    with st.chat_message("user"):
-        st.markdown(f"<div class='chat-bubble-user'>{final_user_message}</div>", unsafe_allow_html=True)
+    return response.choices[0].message["content"]
 
-    # Call GPT
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=st.session_state["messages"]
-        )
-        bot_reply = response.choices[0].message.content
 
-    except Exception:
-        bot_reply = "⚠️ Sorry, API busy hai. Thori der baad try karein."
+# ------------------------------
+# SESSION STATE (Chat History)
+# ------------------------------
+if "chat" not in st.session_state:
+    st.session_state.chat = []
 
-    # Save bot reply
-    st.session_state["messages"].append(
-        {"role": "assistant", "content": bot_reply}
-    )
 
-    # Show bot bubble
-    with st.chat_message("assistant"):
-        st.markdown(f"<div class='chat-bubble-bot'>{bot_reply}</div>", unsafe_allow_html=True)
+# ------------------------------
+# DISPLAY CHAT HISTORY
+# ------------------------------
+for msg in st.session_state.chat:
+    if msg["role"] == "user":
+        st.markdown(f"<div class='user_msg'>🧑‍💼 {msg['content']}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='bot_msg'>🤖 {msg['content']}</div>", unsafe_allow_html=True)
+
+
+# ------------------------------
+# TYPING ANIMATION FUNCTION
+# ------------------------------
+def animated_text(full_text):
+    output = st.empty()
+    text = ""
+
+    for char in full_text:
+        text += char
+        output.markdown(f"<div class='bot_msg'>🤖 {text}</div>", unsafe_allow_html=True)
+        time.sleep(0.015)  # typing speed
+
+
+# ------------------------------
+# INPUT BOX
+# ------------------------------
+user_input = st.text_input("Ask something:", key="user_input", placeholder="Type your question here…")
+
+if user_input:
+    # Add user message
+    st.session_state.chat.append({"role": "user", "content": user_input})
+
+    # Generate AI response
+    answer = generate_answer(user_input)
+
+    # Add bot response
+    st.session_state.chat.append({"role": "assistant", "content": answer})
+
+    # Clear input
+    st.session_state.user_input = ""
+
+    # Rerun to display
+    st.rerun()
+
