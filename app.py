@@ -1,46 +1,33 @@
 import streamlit as st
 from openai import OpenAI
-import os
 import pdfplumber
 
-# -----------------------------
-# PAGE CONFIG
-# -----------------------------
-st.set_page_config(page_title="Zeeshan ka Chatbot", page_icon="🤖", layout="centered")
+# ---------------------------
+# 🔑 OPENAI CLIENT
+# ---------------------------
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# -----------------------------
-# API KEY
-# -----------------------------
-OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
-client = OpenAI(api_key=OPENAI_API_KEY)
+# ---------------------------
+# 📄 LOAD PDF KNOWLEDGE
+# ---------------------------
+PDF_PATH = "Zeeshan_Chatbot_Company_Manual.pdf"
 
-# -----------------------------
-# LOAD PDF KNOWLEDGE
-# -----------------------------
-def load_pdf_text(pdf_path):
+def load_pdf_text():
     text = ""
     try:
-        with pdfplumber.open(pdf_path) as pdf:
+        with pdfplumber.open(PDF_PATH) as pdf:
             for page in pdf.pages:
                 text += page.extract_text() + "\n"
     except:
-        pass
+        text = "Could not load PDF content."
+    
     return text
 
-PDF_TEXT = load_pdf_text("Zeeshan_Chatbot_Company_Manual.pdf")
+PDF_TEXT = load_pdf_text()
 
-# -----------------------------
-# SESSION STATE
-# -----------------------------
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-if "input_box" not in st.session_state:
-    st.session_state.input_box = ""
-
-# -----------------------------
-# RAG MODEL
-# -----------------------------
+# ---------------------------
+# 🤖 GENERATE ANSWER (FIXED)
+# ---------------------------
 def generate_answer(question):
     full_context = f"""
     Company Manual Knowledge:
@@ -49,54 +36,66 @@ def generate_answer(question):
     User Question:
     {question}
 
-    Generate the best answer using the company manual first. 
-    If answer is missing, use general AI knowledge.
+    Respond using the company PDF first. If answer not found, use general AI knowledge.
     """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are Zeeshan ka Chatbot, a smart assistant."},
-            {"role": "user", "content": full_context}
+            {"role": "system", "content": "You are Zeeshan ka Chatbot — a corporate assistant with a tech-robot personality."},
+            {"role": "user", "content": full_context},
         ]
     )
 
-    return response.choices[0].message["content"]
+    # FIX: correct API format
+    return response.choices[0].message.content
 
-# -----------------------------
-# UI TITLE
-# -----------------------------
-st.title("🤖 Zeeshan ka Chatbot")
-st.write("Ask anything! I will use company PDF + AI knowledge.")
 
-# -----------------------------
-# USER INPUT BAR
-# -----------------------------
-user_input = st.text_input(
-    "Ask something:",
-    value=st.session_state.input_box,
-    key="input_bar"
-)
+# ---------------------------
+# 🎨 STREAMLIT UI
+# ---------------------------
+st.set_page_config(page_title="Zeeshan ka Chatbot", page_icon="🤖", layout="centered")
 
-# -----------------------------
-# PROCESS QUESTION
-# -----------------------------
+st.markdown("<h1 style='text-align:center;'>🤖 Zeeshan ka Chatbot</h1>", unsafe_allow_html=True)
+st.write("<p style='text-align:center;'>Your corporate AI assistant powered by RAG + PDF knowledge.</p>", unsafe_allow_html=True)
+
+st.divider()
+
+# ---------------------------
+# 💬 CHAT LOG
+# ---------------------------
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+# ---------------------------
+# 🧑‍💻 USER INPUT
+# ---------------------------
+user_input = st.text_input("Ask something:", key="input_box")
+
 if st.button("Send"):
     if user_input.strip() != "":
         answer = generate_answer(user_input)
 
-        st.session_state.chat_history.append({"q": user_input, "a": answer})
+        # Save chat
+        st.session_state.chat_history.append(
+            {"q": user_input, "a": answer}
+        )
 
-        # CLEAR TEXT BOX
+        # Clear input box
         st.session_state.input_box = ""
-        st.rerun()
 
-# -----------------------------
-# SHOW CHAT HISTORY
-# -----------------------------
-st.markdown("### 💬 Conversation")
+# ---------------------------
+# 📥 DISPLAY CHAT MESSAGES
+# ---------------------------
+for msg in st.session_state.chat_history:
+    st.markdown(f"""
+        <div style='padding:10px; background:#1e1e1e; border-radius:8px; margin-bottom:8px;'>
+            <b>🧑 You:</b> {msg['q']}
+        </div>
+    """, unsafe_allow_html=True)
 
-for msg in reversed(st.session_state.chat_history):
-    st.write(f"🧑 **You:** {msg['q']}")
-    st.write(f"🤖 **Zeeshan ka Chatbot:** {msg['a']}")
-    st.markdown("---")
+    st.markdown(f"""
+        <div style='padding:10px; background:#0b3d91; border-radius:8px; margin-bottom:15px; color:white;'>
+            <b>🤖 Zeeshan ka Chatbot:</b> {msg['a']}
+        </div>
+    """, unsafe_allow_html=True)
