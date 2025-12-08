@@ -73,4 +73,5 @@ for sender, msg in st.session_state.chat:
     if sender == "You":
         st.markdown(f"**🧑 You:** {msg}")
     else:
-        st.markdown(f"**🤖 Zeeshan ka Chatbot:** {msg}")
+        st.markdown(f"**🤖:** {msg}")
+
