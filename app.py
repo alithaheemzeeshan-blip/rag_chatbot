@@ -19,28 +19,18 @@ st.set_page_config(
 # API Key Load
 # -----------------------------
 os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-client = OpenAI()  # NEW OpenAI syntax
+client = OpenAI()
 
-# -----------------------------
-# Chatbot Personality
-# -----------------------------
 system_prompt = """
-You are **Zeeshan ka Chatbot** — a friendly, highly professional corporate AI assistant.
-Your personality:
-- Helpful, accurate, clear.
-- Professional but warm.
-- Always confident.
-- Writes easy-to-read answers.
-- Uses short paragraphs and bullet points when useful.
-
-You also have RAG knowledge from the uploaded PDF, so integrate that into your answers when helpful.
+You are Zeeshan ka Chatbot — a friendly, professional AI assistant.
+Use PDF company knowledge + general AI to answer accurately.
 """
 
 # -----------------------------
-# Load PDF & Build Vector DB
+# Load PDF + Build Vector DB
 # -----------------------------
 @st.cache_resource
-def load_knowledgebase():
+def load_kb():
     pdf_path = "data/Zeeshan_Chatbot_Company_Manual.pdf"
 
     reader = PdfReader(pdf_path)
@@ -48,11 +38,10 @@ def load_knowledgebase():
     for page in reader.pages:
         text += page.extract_text() + "\n"
 
-    # Chunking
     chunks = []
-    chunk_size = 500
-    for i in range(0, len(text), chunk_size):
-        chunks.append(text[i:i + chunk_size])
+    size = 500
+    for i in range(0, len(text), size):
+        chunks.append(text[i:i + size])
 
     model = SentenceTransformer("all-MiniLM-L6-v2")
     embeddings = model.encode(chunks)
@@ -64,90 +53,92 @@ def load_knowledgebase():
     return chunks, embeddings, index, model
 
 
-chunks, embeddings, index, model = load_knowledgebase()
+chunks, embeddings, index, model = load_kb()
 
 # -----------------------------
-# RAG Search
+# PDF Search
 # -----------------------------
 def search_docs(query):
-    query_embedding = model.encode([query])
+    q_emb = model.encode([query])
     k = 3
-    distances, ids = index.search(np.array(query_embedding), k)
-    retrieved = [chunks[i] for i in ids[0]]
-    return "\n\n".join(retrieved)
-
+    dist, ids = index.search(np.array(q_emb), k)
+    return "\n\n".join([chunks[i] for i in ids[0]])
 
 # -----------------------------
-# Generate Answer (NEW OpenAI API)
+# GPT Answer
 # -----------------------------
 def generate_answer(question):
-    retrieved_context = search_docs(question)
+    context = search_docs(question)
 
     prompt = f"""
 User question: {question}
 
 Relevant company knowledge:
-{retrieved_context}
+{context}
 
-Now give the final answer as Zeeshan ka Chatbot.
+Now reply professionally as Zeeshan ka Chatbot.
 """
 
-    response = client.chat.completions.create(
+    res = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
-        ],
+        ]
     )
+    return res.choices[0].message.content
 
-    return response.choices[0].message.content
 
-
-# -----------------------------
-# Streamlit UI
-# -----------------------------
+# --------------------------------
+# UI START
+# --------------------------------
 st.markdown(
     """
-    <h1 style='text-align:center; color:#00E0FF;'>🤖 Zeeshan ka Chatbot</h1>
-    <p style='text-align:center; font-size:18px; color:#d0d0d0;'>
-        Your professional AI assistant powered by RAG + GPT.
-    </p>
-    <br>
+    <h1 style='text-align:center;color:#00E0FF;'>🤖 Zeeshan ka Chatbot</h1>
     """,
     unsafe_allow_html=True,
 )
 
-# Chat history session storage
+# Chat messages stored
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-# Display chat messages
-for msg in st.session_state.chat:
-    if msg["role"] == "user":
-        st.markdown(
-            f"<div style='text-align:right; color:#FFD700; font-size:18px;'>🧑‍💼 {msg['content']}</div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            f"<div style='text-align:left; color:#00FFAA; font-size:18px;'>🤖 {msg['content']}</div>",
-            unsafe_allow_html=True,
-        )
-
-
 # -----------------------------
-# User Input Box
+# User input box (clears after question)
 # -----------------------------
-user_input = st.text_input("Ask something:", "")
+user_input = st.text_input("Ask something:", key="input_box")
 
-submit = st.button("Send")
+send = st.button("Send")
 
-if submit and user_input.strip() != "":
+if send and user_input.strip() != "":
+    # store user message
     st.session_state.chat.append({"role": "user", "content": user_input})
 
+    # generate reply
     with st.spinner("🤖 Thinking..."):
-        bot_reply = generate_answer(user_input)
+        answer = generate_answer(user_input)
 
-    st.session_state.chat.append({"role": "assistant", "content": bot_reply})
+    # store assistant reply
+    st.session_state.chat.append({"role": "assistant", "content": answer})
 
+    # CLEAR the input box
+    st.session_state.input_box = ""
+
+    # Refresh page AFTER clearing input
     st.rerun()
+
+
+# -----------------------------
+# SHOW only the LAST exchange under the input
+# -----------------------------
+if st.session_state.chat:
+    last_msg = st.session_state.chat[-1]
+    if last_msg["role"] == "assistant":
+        st.markdown(
+            f"""
+            <div style='margin-top:20px; color:#00FFAA; font-size:18px;'>
+            <b>🤖 Zeeshan ka Chatbot:</b><br>{last_msg["content"]}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
