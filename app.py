@@ -37,8 +37,9 @@ def get_answer(question):
     system_prompt = f"""
 You are Zeeshan ka Chatbot, a simple company helper bot.
 
-If PDF contains relevant info, use it.
-If not, say: "PDF mein iska jawab nahi mila, but here's a general answer:"
+If the PDF contains relevant information, use it.
+If not, say:
+"PDF mein iska jawab nahi mila, but here's a general answer:"
 
 CONTEXT FROM PDF:
 {context}
@@ -52,7 +53,7 @@ CONTEXT FROM PDF:
         ]
     )
 
-    return response.choices[0].message["content"]
+    return response.choices[0].message.content  # FIXED
 
 
 # -------------------- UI --------------------
@@ -61,8 +62,8 @@ st.title("🤖 Zeeshan ka Chatbot")
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-# Input field (we use a temporary key)
-user_input = st.text_input("Ask something:", key="temp_input")
+# INPUT BOX
+user_input = st.text_input("Ask something:", key="input_q")
 
 if st.button("Send"):
     if user_input.strip():
@@ -71,8 +72,8 @@ if st.button("Send"):
         st.session_state.chat.append(("You", user_input))
         st.session_state.chat.append(("Bot", answer))
 
-        # Clear input box safely
-        st.experimental_set_query_params(clear="1")
+        # Clear input box properly
+        st.session_state.input_q = ""
 
 # DISPLAY CHAT
 st.write("---")
