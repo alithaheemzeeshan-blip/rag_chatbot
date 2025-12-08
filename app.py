@@ -52,7 +52,7 @@ PDF CONTEXT:
 
 
 # -------------------- UI --------------------
-st.title("🤖 Zeeshan ka Chatbot")
+st.title("🤖 J&Z ka Chatbot")
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
@@ -74,5 +74,6 @@ for sender, msg in st.session_state.chat:
         st.markdown(f"**🧑 You:** {msg}")
     else:
         st.markdown(f"**🤖:** {msg}")
+
 
 
