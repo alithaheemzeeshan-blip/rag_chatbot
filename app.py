@@ -2,113 +2,92 @@ import streamlit as st
 import pdfplumber
 from openai import OpenAI
 
+# -------------------- SETTINGS --------------------
+st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
 
-# -----------------------------
-# OPENAI CLIENT
-# -----------------------------
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
+PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
 
-# -----------------------------
-# LOAD & CHUNK PDF
-# -----------------------------
-def load_pdf_chunks(chunk_size=600):
-    pdf_path = "Zeeshan_Chatbot_Company_Manual.pdf"
+# -------------------- LOAD PDF --------------------
+@st.cache_data
+def load_pdf_text():
     text = ""
+    with pdfplumber.open(PDF_PATH) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() + "\n"
+    return text
 
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            for p in pdf.pages:
-                extracted = p.extract_text()
-                if extracted:
-                    text += extracted + "\n"
-    except:
-        return ["(PDF missing — no internal data available.)"]
+pdf_text = load_pdf_text()
 
-    # Simple chunking
-    words = text.split()
-    chunks = []
-    
-    for i in range(0, len(words), chunk_size):
-        chunk = " ".join(words[i:i + chunk_size])
-        chunks.append(chunk)
+# -------------------- SIMPLE RAG RETRIEVAL --------------------
+def retrieve_relevant_context(query):
+    """Find the most relevant chunk (very simple method)."""
+    lines = pdf_text.split("\n")
+    best = ""
 
-    return chunks
+    for line in lines:
+        if query.lower() in line.lower():
+            best = line
+            break
 
+    if best == "":
+        best = "No direct match found in the PDF."
 
-CHUNKS = load_pdf_chunks()
-
-
-# -----------------------------
-# SIMPLE KEYWORD RETRIEVAL (NAIVE RAG)
-# -----------------------------
-def retrieve_relevant_chunk(query):
-    query_words = query.lower().split()
-    best_chunk = ""
-    best_score = 0
-
-    for chunk in CHUNKS:
-        score = sum(chunk.lower().count(word) for word in query_words)
-        if score > best_score:
-            best_score = score
-            best_chunk = chunk
-
-    return best_chunk if best_chunk else "(No matching info found in PDF.)"
+    return best
 
 
-# -----------------------------
-# GENERATE ANSWER USING RAG
-# -----------------------------
-def get_answer(query):
-    context = retrieve_relevant_chunk(query)
+# -------------------- GET ANSWER --------------------
+def get_answer(user_question):
+    context = retrieve_relevant_context(user_question)
 
-    system_message = f"""
-You are **Zeeshan ka Chatbot**, a simple RAG-based assistant.
+    system_prompt = f"""
+You are **Zeeshan ka Chatbot**, a simple company helper bot.
 
-Use the following retrieved context from the company manual to answer:
+Use the following PDF information to answer questions:
 
-CONTEXT:
+CONTEXT FROM PDF:
 {context}
 
-If the context does not answer, say:
-"The PDF does not contain this information. Here is general guidance:"
+If the PDF does NOT give the answer, say:
+"Ye baat PDF mein nahi hai, but here is a general answer:"
 """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": query},
-        ],
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_question}
+        ]
     )
 
-    return response.choices[0].message["content"]
+    return response.choices[0].message.content
 
 
-# -----------------------------
-# STREAMLIT UI
-# -----------------------------
-st.set_page_config(page_title="Zeeshan ka Chatbot", page_icon="🤖")
+# -------------------- UI --------------------
+st.title("🤖 **Zeeshan ka Chatbot**")
+st.write("Ask any question about your company manual!")
 
-st.title("🤖 Zeeshan ka Chatbot (Simple RAG)")
-st.write("Ask anything from your company manual or general knowledge.")
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-
-if "history" not in st.session_state:
-    st.session_state.history = []
-
+# USER INPUT
 user_input = st.text_input("Ask something:", key="input_box")
 
 if st.button("Send"):
     if user_input.strip() != "":
         answer = get_answer(user_input)
-        st.session_state.history.append(("You", user_input))
-        st.session_state.history.append(("Bot", answer))
-        st.session_state.input_box = ""  # CLEAR INPUT BOX
 
+        # Save messages
+        st.session_state.messages.append(("You", user_input))
+        st.session_state.messages.append(("Bot", answer))
 
-# Display chat
-for sender, msg in st.session_state.history:
+        # Clear input
+        st.session_state.input_box = ""
+
+# SHOW CHAT
+st.write("---")
+for sender, msg in st.session_state.messages:
     if sender == "You":
         st.markdown(f"**🧑 You:** {msg}")
     else:
