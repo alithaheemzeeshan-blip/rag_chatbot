@@ -1,16 +1,21 @@
 import streamlit as st
-import pdfplumber
 from openai import OpenAI
 import os
+import pdfplumber
 
 # -----------------------------
-# Load API Key
+# PAGE CONFIG
 # -----------------------------
-api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=api_key)
+st.set_page_config(page_title="Zeeshan ka Chatbot", page_icon="🤖", layout="centered")
 
 # -----------------------------
-# Load PDF Data for RAG
+# API KEY
+# -----------------------------
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+# -----------------------------
+# LOAD PDF KNOWLEDGE
 # -----------------------------
 def load_pdf_text(pdf_path):
     text = ""
@@ -19,82 +24,79 @@ def load_pdf_text(pdf_path):
             for page in pdf.pages:
                 text += page.extract_text() + "\n"
     except:
-        text = ""
+        pass
     return text
 
-pdf_text = load_pdf_text("data/Zeeshan_Chatbot_Company_Manual.pdf")
+PDF_TEXT = load_pdf_text("Zeeshan_Chatbot_Company_Manual.pdf")
 
 # -----------------------------
-# Generate Answer (RAG + AI)
+# SESSION STATE
+# -----------------------------
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+if "input_box" not in st.session_state:
+    st.session_state.input_box = ""
+
+# -----------------------------
+# RAG MODEL
 # -----------------------------
 def generate_answer(question):
-    system_prompt = f"""
-You are **Zeeshan ka Chatbot**, a corporate professional AI assistant.
-Use this PDF knowledge when answering questions:
+    full_context = f"""
+    Company Manual Knowledge:
+    {PDF_TEXT}
 
-{pdf_text}
+    User Question:
+    {question}
 
-If the PDF does not contain the answer,
-use your general AI knowledge but stay formal and helpful.
-"""
+    Generate the best answer using the company manual first. 
+    If answer is missing, use general AI knowledge.
+    """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question}
+            {"role": "system", "content": "You are Zeeshan ka Chatbot, a smart assistant."},
+            {"role": "user", "content": full_context}
         ]
     )
 
     return response.choices[0].message["content"]
 
 # -----------------------------
-# Streamlit Interface
+# UI TITLE
 # -----------------------------
-
-st.set_page_config(page_title="Zeeshan ka Chatbot", layout="wide")
-st.title("🤖 Zeeshan ka Chatbot — Corporate AI Assistant")
-
-st.write("Ask anything below. Your chatbot will use PDF + AI knowledge to answer!")
-
-# Initialize session state variables
-if "input_box" not in st.session_state:
-    st.session_state.input_box = ""
-
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
+st.title("🤖 Zeeshan ka Chatbot")
+st.write("Ask anything! I will use company PDF + AI knowledge.")
 
 # -----------------------------
-# SAFE CLEAR INPUT FUNCTION
-# -----------------------------
-def clear_input():
-    st.session_state.input_box = ""
-
-
-# -----------------------------
-# INPUT BOX + BUTTON
+# USER INPUT BAR
 # -----------------------------
 user_input = st.text_input(
     "Ask something:",
-    key="input_box",
-    placeholder="Type your question here..."
+    value=st.session_state.input_box,
+    key="input_bar"
 )
 
-send = st.button("Send", on_click=clear_input)
+# -----------------------------
+# PROCESS QUESTION
+# -----------------------------
+if st.button("Send"):
+    if user_input.strip() != "":
+        answer = generate_answer(user_input)
 
-if send and user_input:
-    answer = generate_answer(user_input)
-    st.session_state.chat_history.append({"q": user_input, "a": answer})
+        st.session_state.chat_history.append({"q": user_input, "a": answer})
 
+        # CLEAR TEXT BOX
+        st.session_state.input_box = ""
+        st.rerun()
 
 # -----------------------------
-# DISPLAY CHAT BELOW
+# SHOW CHAT HISTORY
 # -----------------------------
-st.markdown("---")
-st.subheader("💬 Conversation")
+st.markdown("### 💬 Conversation")
 
 for msg in reversed(st.session_state.chat_history):
-    st.markdown(f"**🧑 You:** {msg['q']}")
-    st.markdown(f"**🤖 Zeeshan ka Chatbot:** {msg['a']}")
+    st.write(f"🧑 **You:** {msg['q']}")
+    st.write(f"🤖 **Zeeshan ka Chatbot:** {msg['a']}")
     st.markdown("---")
