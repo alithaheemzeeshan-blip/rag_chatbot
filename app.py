@@ -1,87 +1,86 @@
 import streamlit as st
-from openai import OpenAI
 import pdfplumber
-import os
+from openai import OpenAI
 
-st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
-
-# ---------------------------
-# Load PDF Data for RAG
-# ---------------------------
-def load_pdf_data(pdf_path="data/Zeeshan_Chatbot_Company_Manual.pdf"):
-    if not os.path.exists(pdf_path):
-        return ""
-    text = ""
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() + "\n"
-    return text
-
-RAG_DATA = load_pdf_data()
-
-# ---------------------------
-# OpenAI Client
-# ---------------------------
+# Load API key
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
+st.set_page_config(page_title="Zeeshan ka Chatbot", layout="wide")
 
-def generate_answer(user_q):
-    """ Generates an answer using RAG + GPT """
+# ---------------------------
+# Extract PDF text
+# ---------------------------
+def load_pdf_text():
+    pdf_path = "data/Zeeshan_Chatbot_Company_Manual.pdf"
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+        return text
+    except:
+        return "PDF not found or failed to load."
+
+pdf_text = load_pdf_text()
+
+# ---------------------------
+# RAG answer generator
+# ---------------------------
+def generate_answer(question):
     prompt = f"""
 You are **Zeeshan ka Chatbot**, a professional AI assistant.
-Use the RAG company manual below to answer questions accurately.
+Use the following company manual to answer the question.
 
---- COMPANY MANUAL ---
-{RAG_DATA}
-----------------------
+--- COMPANY DATA ---
+{pdf_text}
+---------------------
 
-User Question: {user_q}
-
-If the manual does NOT contain the answer, reply politely: 
-"I'm sorry, this information is not in my company handbook."
+User question: {question}
 """
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {"role": "system", "content": "You are Zeeshan ka Chatbot. Answer politely and professionally."},
+            {"role": "user", "content": prompt}
+        ]
     )
 
-    return response.choices[0].message["content"]
+    return response.choices[0].message.content
 
 
 # ---------------------------
 # Streamlit UI
 # ---------------------------
-
 st.title("🤖 Zeeshan ka Chatbot")
 
-st.write("Ask anything related to your company policies or information.")
+st.write("### Ask something below:")
 
-# Keep chat history
-if "history" not in st.session_state:
-    st.session_state.history = []
+# Initialize message list
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-# Input box (WITHOUT setting session state directly)
-user_input = st.text_input("Ask something:", key="input_box")
+# Input box
+user_input = st.text_input("Your question:", key="input_box", placeholder="Type here...")
 
-# When user presses Enter OR clicks Send
+# Send button
 if st.button("Send"):
     if user_input.strip() != "":
+        # Generate answer
         answer = generate_answer(user_input)
 
-        # Save into history
-        st.session_state.history.append(("You", user_input))
-        st.session_state.history.append(("Bot", answer))
+        # Save conversation
+        st.session_state.chat_history.append(("You", user_input))
+        st.session_state.chat_history.append(("Zeeshan ka Chatbot", answer))
 
-        # CLEAR INPUT BOX SAFELY
-        st.session_state.input_box = ""  # safe reset via widget key
+        # Clear input box
+        st.session_state.input_box = ""
 
 # ---------------------------
-# DISPLAY CHAT MESSAGES
+# Display chat messages
 # ---------------------------
+st.write("### 💬 Chat History")
 
-for role, msg in st.session_state.history:
-    if role == "You":
-        st.markdown(f"### 🧑‍💼 You:\n{msg}")
+for sender, message in st.session_state.chat_history:
+    if sender == "You":
+        st.markdown(f"**🧑 You:** {message}")
     else:
-        st.markdown(f"### 🤖 Zeeshan ka Chatbot:\n{msg}")
+        st.markdown(f"**🤖 Zeeshan ka Chatbot:** {message}")
