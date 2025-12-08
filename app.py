@@ -3,7 +3,7 @@ import pdfplumber
 from openai import OpenAI
 
 # -------------------- BASICS --------------------
-st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
+st.set_page_config(page_title="J&Z ka Chatbot", layout="centered")
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
@@ -74,4 +74,5 @@ for sender, msg in st.session_state.chat:
         st.markdown(f"**🧑 You:** {msg}")
     else:
         st.markdown(f"**🤖:** {msg}")
+
 
