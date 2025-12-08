@@ -1,144 +1,87 @@
 import streamlit as st
-import os
 from openai import OpenAI
-from PyPDF2 import PdfReader
-from sentence_transformers import SentenceTransformer
-import numpy as np
-import faiss
+import pdfplumber
+import os
 
-# -----------------------------
-# Page Config
-# -----------------------------
-st.set_page_config(
-    page_title="Zeeshan ka Chatbot",
-    page_icon="🤖",
-    layout="centered",
-)
+st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
 
-# -----------------------------
-# API Key Load
-# -----------------------------
-os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-client = OpenAI()
-
-system_prompt = """
-You are Zeeshan ka Chatbot — a friendly, professional AI assistant.
-Use PDF company knowledge + general AI to answer accurately.
-"""
-
-# -----------------------------
-# Load PDF + Build Vector DB
-# -----------------------------
-@st.cache_resource
-def load_kb():
-    pdf_path = "data/Zeeshan_Chatbot_Company_Manual.pdf"
-
-    reader = PdfReader(pdf_path)
+# ---------------------------
+# Load PDF Data for RAG
+# ---------------------------
+def load_pdf_data(pdf_path="data/Zeeshan_Chatbot_Company_Manual.pdf"):
+    if not os.path.exists(pdf_path):
+        return ""
     text = ""
-    for page in reader.pages:
-        text += page.extract_text() + "\n"
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() + "\n"
+    return text
 
-    chunks = []
-    size = 500
-    for i in range(0, len(text), size):
-        chunks.append(text[i:i + size])
+RAG_DATA = load_pdf_data()
 
-    model = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = model.encode(chunks)
-
-    dim = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dim)
-    index.add(np.array(embeddings))
-
-    return chunks, embeddings, index, model
+# ---------------------------
+# OpenAI Client
+# ---------------------------
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 
-chunks, embeddings, index, model = load_kb()
-
-# -----------------------------
-# PDF Search
-# -----------------------------
-def search_docs(query):
-    q_emb = model.encode([query])
-    k = 3
-    dist, ids = index.search(np.array(q_emb), k)
-    return "\n\n".join([chunks[i] for i in ids[0]])
-
-# -----------------------------
-# GPT Answer
-# -----------------------------
-def generate_answer(question):
-    context = search_docs(question)
-
+def generate_answer(user_q):
+    """ Generates an answer using RAG + GPT """
     prompt = f"""
-User question: {question}
+You are **Zeeshan ka Chatbot**, a professional AI assistant.
+Use the RAG company manual below to answer questions accurately.
 
-Relevant company knowledge:
-{context}
+--- COMPANY MANUAL ---
+{RAG_DATA}
+----------------------
 
-Now reply professionally as Zeeshan ka Chatbot.
+User Question: {user_q}
+
+If the manual does NOT contain the answer, reply politely: 
+"I'm sorry, this information is not in my company handbook."
 """
 
-    res = client.chat.completions.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ]
+        messages=[{"role": "user", "content": prompt}]
     )
-    return res.choices[0].message.content
+
+    return response.choices[0].message["content"]
 
 
-# --------------------------------
-# UI START
-# --------------------------------
-st.markdown(
-    """
-    <h1 style='text-align:center;color:#00E0FF;'>🤖 Zeeshan ka Chatbot</h1>
-    """,
-    unsafe_allow_html=True,
-)
+# ---------------------------
+# Streamlit UI
+# ---------------------------
 
-# Chat messages stored
-if "chat" not in st.session_state:
-    st.session_state.chat = []
+st.title("🤖 Zeeshan ka Chatbot")
 
-# -----------------------------
-# User input box (clears after question)
-# -----------------------------
+st.write("Ask anything related to your company policies or information.")
+
+# Keep chat history
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# Input box (WITHOUT setting session state directly)
 user_input = st.text_input("Ask something:", key="input_box")
 
-send = st.button("Send")
-
-if send and user_input.strip() != "":
-    # store user message
-    st.session_state.chat.append({"role": "user", "content": user_input})
-
-    # generate reply
-    with st.spinner("🤖 Thinking..."):
+# When user presses Enter OR clicks Send
+if st.button("Send"):
+    if user_input.strip() != "":
         answer = generate_answer(user_input)
 
-    # store assistant reply
-    st.session_state.chat.append({"role": "assistant", "content": answer})
+        # Save into history
+        st.session_state.history.append(("You", user_input))
+        st.session_state.history.append(("Bot", answer))
 
-    # CLEAR the input box
-    st.session_state.input_box = ""
+        # CLEAR INPUT BOX SAFELY
+        st.session_state.input_box = ""  # safe reset via widget key
 
-    # Refresh page AFTER clearing input
-    st.rerun()
+# ---------------------------
+# DISPLAY CHAT MESSAGES
+# ---------------------------
 
-
-# -----------------------------
-# SHOW only the LAST exchange under the input
-# -----------------------------
-if st.session_state.chat:
-    last_msg = st.session_state.chat[-1]
-    if last_msg["role"] == "assistant":
-        st.markdown(
-            f"""
-            <div style='margin-top:20px; color:#00FFAA; font-size:18px;'>
-            <b>🤖 Zeeshan ka Chatbot:</b><br>{last_msg["content"]}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+for role, msg in st.session_state.history:
+    if role == "You":
+        st.markdown(f"### 🧑‍💼 You:\n{msg}")
+    else:
+        st.markdown(f"### 🤖 Zeeshan ka Chatbot:\n{msg}")
