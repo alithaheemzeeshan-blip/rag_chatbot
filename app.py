@@ -1,138 +1,182 @@
 import streamlit as st
-import time
 import os
-from openai import OpenAI
+import openai
 from PyPDF2 import PdfReader
+from sentence_transformers import SentenceTransformer
+import numpy as np
 
-# ---------------------------
-# 1. PAGE CONFIG
-# ---------------------------
+# -----------------------------
+# Page Config
+# -----------------------------
 st.set_page_config(
     page_title="Zeeshan ka Chatbot",
     page_icon="🤖",
     layout="centered",
-    initial_sidebar_state="collapsed"
 )
 
-# ---------------------------
-# 2. OPENAI CLIENT
-# ---------------------------
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# -----------------------------
+# Title With Animation
+# -----------------------------
+st.markdown("""
+<style>
+.big-title {
+    font-size: 45px;
+    font-weight: 700;
+    text-align: center;
+    color: #00c3ff;
+    animation: glow 2s ease-in-out infinite alternate;
+}
+@keyframes glow {
+    from {text-shadow: 0 0 10px #0ff;}
+    to {text-shadow: 0 0 25px #00d9ff;}
+}
+.chat-bubble-user {
+    background: #1f2937;
+    padding: 12px 18px;
+    border-radius: 12px;
+    margin: 8px 0;
+}
+.chat-bubble-bot {
+    background: #111827;
+    border-left: 4px solid #00c3ff;
+    padding: 12px 18px;
+    border-radius: 12px;
+    margin: 8px 0;
+}
+</style>
+<div class='big-title'>🤖 Zeeshan ka Chatbot</div>
+""", unsafe_allow_html=True)
 
-# ---------------------------
-# 3. LOAD PDF FOR RAG
-# ---------------------------
-@st.cache_data
-def load_pdf():
-    pdf_path = "data/Zeeshan_Chatbot_Company_Manual.pdf"
-    if not os.path.exists(pdf_path):
-        return "No company policy PDF found."
 
-    reader = PdfReader(pdf_path)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() + "\n"
+# -----------------------------
+# API Key
+# -----------------------------
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+from openai import OpenAI
+client = OpenAI(api_key=openai.api_key)
 
-    return text
+# -----------------------------
+# Load PDF Knowledge (RAG)
+# -----------------------------
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
-company_knowledge = load_pdf()
+DOCUMENTS = []
+EMBEDDINGS = []
 
-# ---------------------------
-# 4. GENERATE AI ANSWER (RAG)
-# ---------------------------
-def generate_answer(question):
-    system_prompt = f"""
-You are **Zeeshan ka Chatbot**, a helpful, corporate-style AI assistant.
+def load_pdfs():
+    global DOCUMENTS, EMBEDDINGS
+    DOCUMENTS = []
+    EMBEDDINGS = []
 
-You MUST use the knowledge below when answering:
+    pdf_dir = "data"
+    if not os.path.exists(pdf_dir):
+        return
 
---- COMPANY KNOWLEDGE ---
-{company_knowledge}
---------------------------
+    for file in os.listdir(pdf_dir):
+        if file.endswith(".pdf"):
+            reader = PdfReader(os.path.join(pdf_dir, file))
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text() + "\n"
 
-If the user's question is related to company operations, policies, rules, or details,
-answer using the PDF knowledge. If not found, answer like a normal AI but in a 
-professional friendly tone.
-"""
+            chunks = text.split("\n\n")
+            for chunk in chunks:
+                cleaned = chunk.strip()
+                if len(cleaned) > 50:
+                    DOCUMENTS.append(cleaned)
+
+    if DOCUMENTS:
+        EMBEDDINGS = embedder.encode(DOCUMENTS)
+
+load_pdfs()
+
+
+# -----------------------------
+# RAG Search
+# -----------------------------
+def retrieve_context(query):
+    if not DOCUMENTS:
+        return ""
+
+    q_emb = embedder.encode([query])[0]
+    similarities = np.dot(EMBEDDINGS, q_emb)
+
+    top_k = similarities.argsort()[-3:][::-1]
+    best_chunks = [DOCUMENTS[i] for i in top_k]
+
+    return "\n\n".join(best_chunks)
+
+
+# -----------------------------
+# Generate Answer (FIXED)
+# -----------------------------
+def generate_answer(user_question: str) -> str:
+    context = retrieve_context(user_question)
+
+    system_msg = (
+        "You are **Zeeshan ka Chatbot**, "
+        "a respectful, professional and friendly corporate assistant.\n\n"
+        "Rules:\n"
+        "1. If company PDF knowledge matches the question, ALWAYS use it.\n"
+        "2. If not, answer using general knowledge but mention: "
+        "'Yeh maloomat company document se directly nahi mili, yeh general guidance hai.'\n"
+        "3. Keep answers short, clear, polite."
+    )
+
+    if context:
+        system_msg += (
+            "\n\n--- COMPANY PDF KNOWLEDGE ---\n"
+            f"{context}\n"
+            "------------------------------"
+        )
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question}
-        ]
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_question},
+        ],
     )
 
-    return response.choices[0].message["content"]
+    # FIX → handle both new + old message formats
+    choice = response.choices[0]
+    msg = choice.message
+
+    if isinstance(msg, dict):
+        return msg.get("content", "").strip()
+    else:
+        return getattr(msg, "content", "").strip()
 
 
-# ---------------------------
-# 5. TYPING ANIMATION
-# ---------------------------
-def render_typing(text):
-    placeholder = st.empty()
-    typing = ""
-    for char in text:
-        typing += char
-        placeholder.markdown(f"🟦 **Zeeshan ka Chatbot:** {typing}")
-        time.sleep(0.01)
-
-
-# ---------------------------
-# 6. CHAT HISTORY SESSION
-# ---------------------------
+# -----------------------------
+# Chat History
+# -----------------------------
 if "history" not in st.session_state:
     st.session_state.history = []
 
 
-# ---------------------------
-# 7. UI TITLE
-# ---------------------------
-st.markdown(
-    """
-    <h1 style='text-align:center; color:#00BFFF;'>
-        🤖 Zeeshan ka Chatbot
-    </h1>
-    <p style='text-align:center; font-size:18px; color:#CCCCCC;'>
-        Your professional assistant powered by AI + Company Knowledge
-    </p>
-    """,
-    unsafe_allow_html=True
-)
-
+# -----------------------------
+# Chat UI
+# -----------------------------
 st.write("---")
-
-# ---------------------------
-# 8. DISPLAY CHAT HISTORY
-# ---------------------------
-for role, msg in st.session_state.history:
-    if role == "You":
-        st.markdown(f"🟨 **You:** {msg}")
-    else:
-        st.markdown(f"🟦 **Zeeshan ka Chatbot:** {msg}")
-
-# ---------------------------
-# 9. USER INPUT
-# ---------------------------
-user_input = st.text_input("Ask something:", "", key="chatbox")
+user_input = st.text_input("Ask something from Zeeshan ka Chatbot:", "")
 
 if st.button("Send"):
     if user_input.strip() != "":
         st.session_state.history.append(("You", user_input))
-
-        with st.spinner("Zeeshan ka Chatbot is thinking..."):
-            bot_reply = generate_answer(user_input)
-
-        st.session_state.history.append(("Zeeshan ka Chatbot", bot_reply))
-
-        st.rerun()  # CLEAR TEXTBOX + RELOAD CHAT
+        bot_reply = generate_answer(user_input)
+        st.session_state.history.append(("Bot", bot_reply))
+        st.rerun()
 
 
-# ---------------------------
-# 10. FOOTER
-# ---------------------------
-st.write("---")
-st.markdown(
-    "<p style='text-align:center; color:gray;'>Made for Zeeshan • AI Powered RAG Chatbot</p>",
-    unsafe_allow_html=True
-)
+# -----------------------------
+# Display Chat Bubbles
+# -----------------------------
+st.write("### Conversation:")
+
+for sender, msg in st.session_state.history:
+    if sender == "You":
+        st.markdown(f"<div class='chat-bubble-user'><b>You:</b> {msg}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='chat-bubble-bot'><b>Zeeshan ka Chatbot:</b> {msg}</div>", unsafe_allow_html=True)
+
