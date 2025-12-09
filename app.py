@@ -65,7 +65,7 @@ Always combine both sources.
 """
 
     response = client.chat.completions.create(
-        model="llama3-8b-8192",   # ✔ supported & fast
+        model="llama3-8b-8192",
         messages=[
             {"role": "system", "content": system_msg},
             {"role": "user", "content": query}
@@ -80,7 +80,7 @@ st.title("🤖 Zeeshan RAG Chatbot")
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-with st.form("ask_form", clear_on_submit=True):
+with st.form("ask_form", clear_on_submit=True"):
     q = st.text_input("Ask something:")
     send = st.form_submit_button("Send")
 
