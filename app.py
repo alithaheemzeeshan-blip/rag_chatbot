@@ -1,20 +1,19 @@
 import streamlit as st
 import pdfplumber
 from openai import OpenAI
-import numpy as np
+import os
+import json
 
+# -------------------- BASIC SETTINGS --------------------
 st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
-
-# Load API Key
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
+EMBED_CACHE = "data/embeddings_cache.json"
 
-# -------------------------------------------
-# 1. LOAD PDF
-# -------------------------------------------
+# -------------------- LOAD PDF --------------------
 @st.cache_data
-def load_pdf():
+def load_pdf_text():
     text = ""
     with pdfplumber.open(PDF_PATH) as pdf:
         for page in pdf.pages:
@@ -23,92 +22,97 @@ def load_pdf():
                 text += tx + "\n"
     return text
 
-raw_text = load_pdf()
+pdf_text = load_pdf_text()
 
 
-# -------------------------------------------
-# 2. SPLIT PDF TEXT INTO CHUNKS
-# -------------------------------------------
+# -------------------- SPLIT PDF INTO CHUNKS --------------------
 def split_into_chunks(text, chunk_size=500):
     words = text.split()
     chunks = []
     for i in range(0, len(words), chunk_size):
-        chunk = " ".join(words[i:i + chunk_size])
+        chunk = " ".join(words[i:i+chunk_size])
         chunks.append(chunk)
     return chunks
 
-chunks = split_into_chunks(raw_text)
 
+# -------------------- EMBEDDINGS (ONLY ONCE!) --------------------
+def embed_once_and_save():
+    if os.path.exists(EMBED_CACHE):
+        with open(EMBED_CACHE, "r") as f:
+            return json.load(f)
 
-# -------------------------------------------
-# 3. CREATE EMBEDDINGS FOR EACH CHUNK
-# -------------------------------------------
-@st.cache_data
-def embed_chunks(chunk_list):
-    embed_list = []
-    for chunk in chunk_list:
-        response = client.embeddings.create(
+    chunks = split_into_chunks(pdf_text)
+    cache = []
+
+    for chunk in chunks:
+        emb = client.embeddings.create(
             model="text-embedding-3-small",
             input=chunk
-        )
-        embed_list.append(response.data[0].embedding)
-    return np.array(embed_list)
+        ).data[0].embedding
 
-chunk_embeddings = embed_chunks(chunks)
+        cache.append({"text": chunk, "embedding": emb})
+
+    with open(EMBED_CACHE, "w") as f:
+        json.dump(cache, f)
+
+    return cache
 
 
-# -------------------------------------------
-# 4. FIND MOST RELEVANT CHUNKS
-# -------------------------------------------
-def retrieve_context(query, top_k=3):
-    query_emb = client.embeddings.create(
+embeddings_cache = embed_once_and_save()
+
+
+# -------------------- FIND MOST RELEVANT CHUNK --------------------
+import numpy as np
+
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+
+def retrieve_relevant_chunk(question):
+    q_emb = client.embeddings.create(
         model="text-embedding-3-small",
-        input=query
+        input=question
     ).data[0].embedding
 
-    query_emb = np.array(query_emb)
+    best = None
+    best_score = -1
 
-    # cosine similarity
-    similarities = np.dot(chunk_embeddings, query_emb)
+    for item in embeddings_cache:
+        score = cosine_similarity(np.array(q_emb), np.array(item["embedding"]))
+        if score > best_score:
+            best = item["text"]
+            best_score = score
 
-    top_indices = similarities.argsort()[::-1][:top_k]
-
-    retrieved = "\n\n".join([chunks[i] for i in top_indices])
-    return retrieved
+    return best
 
 
-# -------------------------------------------
-# 5. GET AI ANSWER USING RETRIEVED CONTEXT
-# -------------------------------------------
-def get_answer(user_question):
-    context = retrieve_context(user_question)
+# -------------------- GET AI ANSWER --------------------
+def get_answer(question):
+
+    relevant_text = retrieve_relevant_chunk(question)
 
     system_prompt = f"""
-You are Zeeshan ka Chatbot.
-You answer ONLY using the PDF knowledge below:
+You are Zeeshan ka Chatbot. Use the RAG system:
+1. First use the PDF context **IF it is relevant**.
+2. If the PDF does not contain the answer, use your own updated AI knowledge.
 
 PDF CONTEXT:
-{context}
-
-If the answer is not present in the PDF, say:
-"Sorry, this information is not available in my company manual."
+{relevant_text}
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    res = client.chat.completions.create(
+        model="gpt-4.1",
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_question}
+            {"role": "user", "content": question}
         ]
     )
 
-    return response.choices[0].message.content
+    return res.choices[0].message["content"]
 
 
-# -------------------------------------------
-# 6. USER INTERFACE
-# -------------------------------------------
-st.title("🤖 Zeeshan ka RAG Chatbot")
+# -------------------- UI --------------------
+st.title("🤖 Zeeshan ka Chatbot")
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
