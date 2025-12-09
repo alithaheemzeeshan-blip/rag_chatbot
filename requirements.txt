@@ -1,3 +1,5 @@
 streamlit
 pdfplumber
-requests
+groq
+tavily-python
+scikit-learn
