@@ -2,14 +2,11 @@ import streamlit as st
 import pdfplumber
 from openai import OpenAI
 
-# -------------------- PAGE SETUP --------------------
 st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
 
-# -------------------- LOAD PDF --------------------
 @st.cache_data
 def load_pdf_text():
     text = ""
@@ -22,7 +19,6 @@ def load_pdf_text():
 
 pdf_text = load_pdf_text()
 
-# -------------------- IMPROVED SIMPLE RAG --------------------
 def retrieve_context(query):
     lines = pdf_text.split("\n")
     query_words = query.lower().split()
@@ -42,28 +38,15 @@ def retrieve_context(query):
         return "No matching info found in PDF."
 
     scored.sort(reverse=True)
-    best_lines = [line for score, line in scored[:7]]  # top 7 lines
+    best_lines = [line for score, line in scored[:7]]
     return "\n".join(best_lines)
 
-
-# -------------------- AI ANSWER --------------------
 def get_answer(question):
     context = retrieve_context(question)
 
     system_prompt = f"""
-You are **Zeeshan ka Chatbot**, a friendly and smart assistant.
-
-Your rules:
-
-1. ALWAYS use the PDF context FIRST.
-2. If the PDF is missing details or outdated, ALSO use general AI knowledge.
-3. Your final answer must be a combination of:
-   - Information found in the PDF
-   - Extra AI knowledge (latest information)
-4. Do NOT invent things that conflict with the PDF.
-5. If the PDF is outdated (like 2023), expand the answer with updated info.
-
-PDF CONTEXT (may be partial or old):
+You are Zeeshan ka Chatbot. Use the PDF first, then add updated AI knowledge.
+PDF CONTEXT:
 {context}
 """
 
@@ -75,16 +58,15 @@ PDF CONTEXT (may be partial or old):
         ]
     )
 
-    return response.choices[0].message["content"]
+    # FIXED FORMAT
+    return response.choices[0].message.content
 
 
-# -------------------- UI --------------------
 st.title("🤖 Zeeshan ka Chatbot")
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-# Input form (clears automatically)
 with st.form("chat_form", clear_on_submit=True):
     user_input = st.text_input("Ask something:")
     submitted = st.form_submit_button("Send")
@@ -94,7 +76,6 @@ if submitted and user_input.strip():
     st.session_state.chat.append(("You", user_input))
     st.session_state.chat.append(("Bot", answer))
 
-# -------------------- DISPLAY CHAT --------------------
 st.write("---")
 for sender, msg in st.session_state.chat:
     if sender == "You":
