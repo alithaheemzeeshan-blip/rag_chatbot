@@ -4,9 +4,10 @@ import os
 from tavily import TavilyClient
 from groq import Groq
 
-# ---------------- BASIC CONFIG -------------------
+# ---------------- CONFIG -------------------
 st.set_page_config(page_title="Zeeshan RAG Chatbot", layout="centered")
 
+# Load API keys
 GROQ_KEY = st.secrets["GROQ_API_KEY"]
 TAVILY_KEY = st.secrets["TAVILY_API_KEY"]
 
@@ -15,79 +16,77 @@ tavily = TavilyClient(api_key=TAVILY_KEY)
 
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
 
-# ---------------- LOAD PDF ------------------------
+# --------------- LOAD PDF -------------------
 @st.cache_data
 def load_pdf():
     text = ""
     with pdfplumber.open(PDF_PATH) as pdf:
-        for page in pdf.pages:
-            txt = page.extract_text()
-            if txt:
-                text += txt + "\n"
+        for pg in pdf.pages:
+            t = pg.extract_text()
+            if t:
+                text += t + "\n"
     return text
 
 pdf_text = load_pdf()
 
-# ---------------- SIMPLE RAG -----------------------
+# --------------- SIMPLE PDF SEARCH ----------
 def retrieve_from_pdf(query):
-    best = ""
     for line in pdf_text.split("\n"):
         if query.lower() in line.lower():
-            best = line
-            break
-    return best if best else "NO MATCH FOUND IN PDF"
+            return line
+    return "No relevant info found inside PDF."
 
-# ---------------- WEB SEARCH -----------------------
-def web_search(q):
+# --------------- WEB SEARCH -----------------
+def web_search(query):
     try:
-        result = tavily.search(q)
+        result = tavily.search(query)
         return result["results"][0]["content"]
-    except:
+    except Exception:
         return "Web search unavailable."
 
-# ---------------- GROQ LLM -------------------------
+# --------------- GROQ LLM -------------------
 def generate_answer(query):
-    
-    context_pdf = retrieve_from_pdf(query)
-    context_web = web_search(query)
+    pdf_info = retrieve_from_pdf(query)
+    web_info = web_search(query)
 
-    system_msg = f"""
-You are Zeeshan's RAG chatbot.
-Use BOTH the PDF and live web info.
+    system_prompt = f"""
+You are Zeeshan's smart RAG chatbot.
+Use BOTH the company PDF and live internet search.
 
-PDF DATA:
-{context_pdf}
+PDF INFORMATION:
+{pdf_info}
 
-WEB DATA:
-{context_web}
+WEB INFORMATION:
+{web_info}
 
-Always combine both sources.
+Always answer based on both sources.
+If PDF has no match, rely on web.
 """
 
     response = client.chat.completions.create(
-        model="llama3-8b-8192",
+        model="mixtral-8x7b-32768",  # ✔ SAFE MODEL
         messages=[
-            {"role": "system", "content": system_msg},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
         ]
     )
 
     return response.choices[0].message["content"]
 
-# ---------------- UI -------------------------------
+# ---------------- UI ------------------------
 st.title("🤖 Zeeshan RAG Chatbot")
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-with st.form("ask_form", clear_on_submit=True"):
-    q = st.text_input("Ask something:")
+with st.form("ask_form", clear_on_submit=True):
+    question = st.text_input("Ask something:")
     send = st.form_submit_button("Send")
 
-if send and q.strip():
-    ans = generate_answer(q)
-    st.session_state.chat.append(("You", q))
-    st.session_state.chat.append(("Bot", ans))
+if send and question.strip():
+    answer = generate_answer(question)
+    st.session_state.chat.append(("You", question))
+    st.session_state.chat.append(("Bot", answer))
 
 st.write("---")
 for sender, msg in st.session_state.chat:
