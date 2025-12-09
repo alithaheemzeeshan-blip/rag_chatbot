@@ -1,96 +1,140 @@
 import streamlit as st
 import pdfplumber
-from groq import Groq
-from tavily import TavilyClient
+import requests
+import textwrap
 
-# ---------------- CONFIG -------------------
-st.set_page_config(page_title="Zeeshan RAG Chatbot", layout="centered")
+# -------------------- BASIC SETUP --------------------
+st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
 
-GROQ_KEY = st.secrets["GROQ_API_KEY"]
-TAVILY_KEY = st.secrets["TAVILY_API_KEY"]
-
-client = Groq(api_key=GROQ_KEY)
-tavily = TavilyClient(api_key=TAVILY_KEY)
-
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
+MODEL_NAME = "llama-3.1-8b-instant"   # UPDATED WORKING MODEL
 
-# ---------------- LOAD PDF -------------------
+
+# -------------------- LOAD + CHUNK PDF --------------------
 @st.cache_data
-def load_pdf():
+def load_chunks(max_chars: int = 600):
     text = ""
     with pdfplumber.open(PDF_PATH) as pdf:
         for page in pdf.pages:
-            t = page.extract_text()
-            if t:
-                text += t + "\n"
-    return text
+            tx = page.extract_text()
+            if tx:
+                text += tx + "\n"
 
-pdf_text = load_pdf()
+    raw_parts = [p.strip() for p in text.split("\n") if p.strip()]
+    chunks = []
+    buf = ""
 
-# ---------------- SIMPLE PDF RETRIEVAL -----------
-def retrieve_from_pdf(query):
-    for line in pdf_text.split("\n"):
-        if query.lower() in line.lower():
-            return line
-    return "No relevant information found in PDF."
+    for part in raw_parts:
+        if len(buf) + len(part) <= max_chars:
+            buf += " " + part
+        else:
+            chunks.append(buf.strip())
+            buf = part
 
-# ---------------- WEB SEARCH ----------------------
-def search_web(q):
+    if buf:
+        chunks.append(buf.strip())
+
+    return chunks
+
+
+pdf_chunks = load_chunks()
+
+
+# -------------------- SIMPLE RETRIEVAL --------------------
+def retrieve_context(query: str, top_k: int = 3):
+    q_words = set(query.lower().split())
+    scored = []
+
+    for ch in pdf_chunks:
+        ch_words = set(ch.lower().split())
+        score = len(q_words & ch_words)
+        if score > 0:
+            scored.append((score, ch))
+
+    if not scored:
+        return "\n\n".join(pdf_chunks[:top_k])
+
+    scored.sort(reverse=True, key=lambda x: x[0])
+    return "\n\n".join([c for _, c in scored[:top_k]])
+
+
+# -------------------- CALL GROQ API --------------------
+def llama_chat(messages):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": MODEL_NAME,
+        "messages": messages,
+        "temperature": 0.4,
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+    result = response.json()
+
     try:
-        result = tavily.search(q)
-        return result["results"][0]["content"]
+        return result["choices"][0]["message"]["content"]
     except:
-        return "No live web data available."
+        return "⚠️ Groq API Error:\n" + str(result)
 
-# ---------------- LLM (GROQ) ----------------------
-def generate_answer(user_q):
-    pdf_info = retrieve_from_pdf(user_q)
-    web_info = search_web(user_q)
+
+# -------------------- RAG ANSWER --------------------
+def get_answer(question: str, history):
+    context = retrieve_context(question)
 
     system_prompt = f"""
-You are Zeeshan's intelligent RAG chatbot.
-Use BOTH the PDF and live web search to answer
-with accurate and updated information.
+You are **Zeeshan ka Chatbot**.
+Use PDF context first.
+If PDF has no answer, use AI knowledge.
+If question is real-time based, warn that information may be outdated.
 
-PDF DATA:
-{pdf_info}
-
-WEB DATA:
-{web_info}
-
-If PDF contradicts web, ALWAYS prefer web (latest info). 
-Respond naturally, intelligently, and concisely.
+PDF CONTEXT:
+---------------------
+{context}
+---------------------
 """
 
-    response = client.chat.completions.create(
-        model="llama3-8b",     # ✔ STABLE MODEL
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_q}
-        ]
-    )
+    messages = [{"role": "system", "content": system_prompt}]
 
-    return response.choices[0].message["content"]
+    for m in history[-6:]:
+        messages.append(m)
+
+    messages.append({"role": "user", "content": question})
+
+    return llama_chat(messages)
 
 
-# ---------------- UI -------------------------------
-st.title("🤖 Zeeshan's Smart RAG Chatbot (PDF + Web + LLM)")
+# -------------------- STREAMLIT UI --------------------
+st.title("🤖 Zeeshan ka Chatbot – LLaMA Powered (Groq)")
 
-if "chat" not in st.session_state:
-    st.session_state.chat = []
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "assistant",
+         "content": "Assalam o Alaikum! 👋 Main **Zeeshan ka Chatbot** hoon. "
+                    "PDF + AI dono mix karta hoon. Kuch bhi pooch lo!"}
+    ]
 
-with st.form("ask_form", clear_on_submit=True):
-    question = st.text_input("Ask something:")
-    send = st.form_submit_button("Send")
+# Display messages
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
-if send and question.strip():
-    answer = generate_answer(question)
-    st.session_state.chat.append(("You", question))
-    st.session_state.chat.append(("Bot", answer))
+# User input
+user_input = st.chat_input("Apna sawal likho...")
 
-st.write("---")
-for sender, msg in st.session_state.chat:
-    if sender == "You":
-        st.markdown(f"🧑 **You:** {msg}")
-    else:
-        st.markdown(f"🤖 **Bot:** {msg}")
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.markdown(user_input)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Soch raha hoon..."):
+            answer = get_answer(user_input, st.session_state.messages)
+        st.markdown(answer)
+
+    st.session_state.messages.append({"role": "assistant", "content": answer})
