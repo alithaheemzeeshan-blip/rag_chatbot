@@ -115,7 +115,7 @@ st.title("🤖 Z&J Ka Chatbot")
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant",
-         "content": "Assalam o Alaikum! 👋 Main Z&J ka Chatbot** hoon. "
+         "content": "Assalam o Alaikum! 👋 Main Z&J ka Chatbot hoon. "
                     "Jo Bhi Phouchna Bindaas Phoucho"}
     ]
 
@@ -138,4 +138,5 @@ if user_input:
         st.markdown(answer)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
+
 
