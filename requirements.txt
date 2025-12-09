@@ -1,5 +1,4 @@
 streamlit
-pdfplumber
 groq
 tavily-python
-scikit-learn
+pdfplumber
