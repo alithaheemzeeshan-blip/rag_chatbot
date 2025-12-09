@@ -1,133 +1,121 @@
 import streamlit as st
 import pdfplumber
-import os
 import json
+import os
 from openai import OpenAI
 import numpy as np
 
-# -------------------------------------------------
-# BASIC SETUP
-# -------------------------------------------------
 st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
+
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
-EMBED_FILE = "embeddings_cache.json"
+EMBEDDINGS_FILE = "data/pdf_embeddings.json"
 
-# -------------------------------------------------
-# LOAD PDF
-# -------------------------------------------------
+# -------------------- LOAD PDF --------------------
+@st.cache_data
 def load_pdf_text():
     text = ""
     with pdfplumber.open(PDF_PATH) as pdf:
-        for p in pdf.pages:
-            t = p.extract_text()
-            if t:
-                text += t + "\n"
+        for page in pdf.pages:
+            tx = page.extract_text()
+            if tx:
+                text += tx + "\n"
     return text
 
 pdf_text = load_pdf_text()
 
-# -------------------------------------------------
-# CHUNK PDF
-# -------------------------------------------------
+# -------------------- SPLIT PDF --------------------
 def chunk_text(text, size=500):
     words = text.split()
     return [" ".join(words[i:i+size]) for i in range(0, len(words), size)]
 
 chunks = chunk_text(pdf_text)
 
-# -------------------------------------------------
-# EMBEDDINGS: CREATE ONCE AND SAVE
-# -------------------------------------------------
-@st.cache_resource
-def get_embeddings():
-    if os.path.exists(EMBED_FILE):
-        with open(EMBED_FILE, "r") as f:
+# -------------------- CREATE EMBEDDINGS ONCE --------------------
+def generate_embeddings_once():
+    """Creates embeddings only ONCE and saves locally."""
+    if os.path.exists(EMBEDDINGS_FILE):
+        with open(EMBEDDINGS_FILE, "r") as f:
             return json.load(f)
 
-    emb_list = []
-    st.write("⚠️ First-time setup: Creating embeddings...")
+    st.warning("📌 First-time setup: Creating embeddings...")
 
+    embeddings = []
     for chunk in chunks:
-        embedding = client.embeddings.create(
+        response = client.embeddings.create(
             model="text-embedding-3-small",
             input=chunk
-        ).data[0].embedding
-        emb_list.append(embedding)
+        )
+        emb = response.data[0].embedding
+        embeddings.append(emb)
 
-    with open(EMBED_FILE, "w") as f:
-        json.dump(emb_list, f)
+    with open(EMBEDDINGS_FILE, "w") as f:
+        json.dump(embeddings, f)
 
-    st.success("Embeddings saved!")
-    return emb_list
+    return embeddings
 
-embeddings = get_embeddings()
+embeddings = generate_embeddings_once()
 
-# -------------------------------------------------
-# SEARCH FUNCTION
-# -------------------------------------------------
-def search_context(query, top_k=3):
-    q_emb = client.embeddings.create(
+# -------------------- FIND BEST MATCH --------------------
+def search_pdf(query):
+    """Find closest chunk using cosine similarity."""
+    query_emb = client.embeddings.create(
         model="text-embedding-3-small",
         input=query
     ).data[0].embedding
 
     scores = []
-    for i, e in enumerate(embeddings):
-        sim = np.dot(q_emb, e) / (np.linalg.norm(q_emb) * np.linalg.norm(e))
-        scores.append((sim, chunks[i]))
+    for i, emb in enumerate(embeddings):
+        emb = np.array(emb)
+        q = np.array(query_emb)
+        score = np.dot(emb, q) / (np.linalg.norm(emb) * np.linalg.norm(q))
+        scores.append((score, i))
 
     scores.sort(reverse=True)
-    best = [s[1] for s in scores[:top_k]]
-    return "\n\n".join(best)
+    best_chunk = chunks[scores[0][1]]
+    return best_chunk
 
-# -------------------------------------------------
-# AI ANSWER USING BOTH KNOWLEDGE + PDF
-# -------------------------------------------------
+# -------------------- AI ANSWERING --------------------
 def get_answer(question):
-    context = search_context(question)
+    context = search_pdf(question)
 
-    system_message = f"""
-You are Zeeshan ka Chatbot. 
-Use BOTH:
-1) The provided PDF context.
-2) Your latest AI knowledge (current world info, updated 2025).
-If PDF contradicts AI knowledge, respond using the MOST ACCURATE AND LATEST INFORMATION.
+    prompt = f"""
+You are Zeeshan ka Chatbot.
 
-PDF CONTEXT:
+Use the PDF information **if relevant**, BUT also use **your updated 2024 knowledge**.
+
+PDF REFERENCE:
+\"\"\"
 {context}
+\"\"\"
 """
 
-    response = client.chat.completions.create(
+    res = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": system_message},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": question}
         ]
     )
+    return res.choices[0].message["content"]
 
-    return response.choices[0].message.content
-
-# -------------------------------------------------
-# UI
-# -------------------------------------------------
-st.title("🤖 Zeeshan ka Chatbot (Real RAG + Live AI)")
+# -------------------- UI --------------------
+st.title("🤖 Zeeshan ka Chatbot (RAG + AI)")
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-with st.form("chat_form", clear_on_submit=True):
-    user_input = st.text_input("Ask something:")
+with st.form("ask_form", clear_on_submit=True):
+    question = st.text_input("Ask something:")
     submitted = st.form_submit_button("Send")
 
-if submitted and user_input.strip():
-    reply = get_answer(user_input)
-    st.session_state.chat.append(("You", user_input))
-    st.session_state.chat.append(("Bot", reply))
+if submitted and question.strip():
+    answer = get_answer(question)
+    st.session_state.chat.append(("You", question))
+    st.session_state.chat.append(("Bot", answer))
 
-# DISPLAY CHAT
-st.write("----")
+st.write("---")
 for sender, msg in st.session_state.chat:
     if sender == "You":
         st.markdown(f"**🧑 You:** {msg}")
