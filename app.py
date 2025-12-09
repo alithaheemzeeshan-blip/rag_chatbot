@@ -110,13 +110,13 @@ PDF CONTEXT:
 
 
 # -------------------- STREAMLIT UI --------------------
-st.title("🤖 Zeeshan ka Chatbot – LLaMA Powered (Groq)")
+st.title("🤖 Z&J Ka Chatbot")
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant",
-         "content": "Assalam o Alaikum! 👋 Main **Zeeshan ka Chatbot** hoon. "
-                    "PDF + AI dono mix karta hoon. Kuch bhi pooch lo!"}
+         "content": "Assalam o Alaikum! 👋 Main Z&J ka Chatbot** hoon. "
+                    "Jo Bhi Phouchna Bindaas Phoucho"}
     ]
 
 # Display messages
@@ -138,3 +138,4 @@ if user_input:
         st.markdown(answer)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
+
