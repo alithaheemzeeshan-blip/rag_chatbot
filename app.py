@@ -142,7 +142,7 @@ if "messages" not in st.session_state:
 
 # Display chat messages
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]:
+    with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 # User input
@@ -160,3 +160,4 @@ if user_input:
         st.markdown(answer)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
+
