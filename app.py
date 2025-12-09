@@ -1,118 +1,118 @@
 import streamlit as st
 import pdfplumber
-from openai import OpenAI
 import os
 import json
+from openai import OpenAI
+import numpy as np
 
-# -------------------- BASIC SETTINGS --------------------
+# -------------------------------------------------
+# BASIC SETUP
+# -------------------------------------------------
 st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
-EMBED_CACHE = "data/embeddings_cache.json"
+EMBED_FILE = "embeddings_cache.json"
 
-# -------------------- LOAD PDF --------------------
-@st.cache_data
+# -------------------------------------------------
+# LOAD PDF
+# -------------------------------------------------
 def load_pdf_text():
     text = ""
     with pdfplumber.open(PDF_PATH) as pdf:
-        for page in pdf.pages:
-            tx = page.extract_text()
-            if tx:
-                text += tx + "\n"
+        for p in pdf.pages:
+            t = p.extract_text()
+            if t:
+                text += t + "\n"
     return text
 
 pdf_text = load_pdf_text()
 
-
-# -------------------- SPLIT PDF INTO CHUNKS --------------------
-def split_into_chunks(text, chunk_size=500):
+# -------------------------------------------------
+# CHUNK PDF
+# -------------------------------------------------
+def chunk_text(text, size=500):
     words = text.split()
-    chunks = []
-    for i in range(0, len(words), chunk_size):
-        chunk = " ".join(words[i:i+chunk_size])
-        chunks.append(chunk)
-    return chunks
+    return [" ".join(words[i:i+size]) for i in range(0, len(words), size)]
 
+chunks = chunk_text(pdf_text)
 
-# -------------------- EMBEDDINGS (ONLY ONCE!) --------------------
-def embed_once_and_save():
-    if os.path.exists(EMBED_CACHE):
-        with open(EMBED_CACHE, "r") as f:
+# -------------------------------------------------
+# EMBEDDINGS: CREATE ONCE AND SAVE
+# -------------------------------------------------
+@st.cache_resource
+def get_embeddings():
+    if os.path.exists(EMBED_FILE):
+        with open(EMBED_FILE, "r") as f:
             return json.load(f)
 
-    chunks = split_into_chunks(pdf_text)
-    cache = []
+    emb_list = []
+    st.write("⚠️ First-time setup: Creating embeddings...")
 
     for chunk in chunks:
-        emb = client.embeddings.create(
+        embedding = client.embeddings.create(
             model="text-embedding-3-small",
             input=chunk
         ).data[0].embedding
+        emb_list.append(embedding)
 
-        cache.append({"text": chunk, "embedding": emb})
+    with open(EMBED_FILE, "w") as f:
+        json.dump(emb_list, f)
 
-    with open(EMBED_CACHE, "w") as f:
-        json.dump(cache, f)
+    st.success("Embeddings saved!")
+    return emb_list
 
-    return cache
+embeddings = get_embeddings()
 
-
-embeddings_cache = embed_once_and_save()
-
-
-# -------------------- FIND MOST RELEVANT CHUNK --------------------
-import numpy as np
-
-def cosine_similarity(a, b):
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
-
-def retrieve_relevant_chunk(question):
+# -------------------------------------------------
+# SEARCH FUNCTION
+# -------------------------------------------------
+def search_context(query, top_k=3):
     q_emb = client.embeddings.create(
         model="text-embedding-3-small",
-        input=question
+        input=query
     ).data[0].embedding
 
-    best = None
-    best_score = -1
+    scores = []
+    for i, e in enumerate(embeddings):
+        sim = np.dot(q_emb, e) / (np.linalg.norm(q_emb) * np.linalg.norm(e))
+        scores.append((sim, chunks[i]))
 
-    for item in embeddings_cache:
-        score = cosine_similarity(np.array(q_emb), np.array(item["embedding"]))
-        if score > best_score:
-            best = item["text"]
-            best_score = score
+    scores.sort(reverse=True)
+    best = [s[1] for s in scores[:top_k]]
+    return "\n\n".join(best)
 
-    return best
-
-
-# -------------------- GET AI ANSWER --------------------
+# -------------------------------------------------
+# AI ANSWER USING BOTH KNOWLEDGE + PDF
+# -------------------------------------------------
 def get_answer(question):
+    context = search_context(question)
 
-    relevant_text = retrieve_relevant_chunk(question)
-
-    system_prompt = f"""
-You are Zeeshan ka Chatbot. Use the RAG system:
-1. First use the PDF context **IF it is relevant**.
-2. If the PDF does not contain the answer, use your own updated AI knowledge.
+    system_message = f"""
+You are Zeeshan ka Chatbot. 
+Use BOTH:
+1) The provided PDF context.
+2) Your latest AI knowledge (current world info, updated 2025).
+If PDF contradicts AI knowledge, respond using the MOST ACCURATE AND LATEST INFORMATION.
 
 PDF CONTEXT:
-{relevant_text}
+{context}
 """
 
-    res = client.chat.completions.create(
-        model="gpt-4.1",
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": system_message},
             {"role": "user", "content": question}
         ]
     )
 
-    return res.choices[0].message["content"]
+    return response.choices[0].message.content
 
-
-# -------------------- UI --------------------
-st.title("🤖 Zeeshan ka Chatbot")
+# -------------------------------------------------
+# UI
+# -------------------------------------------------
+st.title("🤖 Zeeshan ka Chatbot (Real RAG + Live AI)")
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
@@ -122,11 +122,12 @@ with st.form("chat_form", clear_on_submit=True):
     submitted = st.form_submit_button("Send")
 
 if submitted and user_input.strip():
-    answer = get_answer(user_input)
+    reply = get_answer(user_input)
     st.session_state.chat.append(("You", user_input))
-    st.session_state.chat.append(("Bot", answer))
+    st.session_state.chat.append(("Bot", reply))
 
-st.write("---")
+# DISPLAY CHAT
+st.write("----")
 for sender, msg in st.session_state.chat:
     if sender == "You":
         st.markdown(f"**🧑 You:** {msg}")
