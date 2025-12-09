@@ -1,120 +1,96 @@
 import streamlit as st
+import pdfplumber
 from groq import Groq
 from tavily import TavilyClient
-import pdfplumber
 
-# --------------------------
-# PAGE SETTINGS
-# --------------------------
-st.set_page_config(page_title="Zeeshan ka Smart RAG Chatbot", layout="centered")
-st.title("🤖 Zeeshan ka Smart RAG Chatbot")
+# -------------------- CONFIG --------------------
+st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
 
-# --------------------------
-# LOAD API KEYS
-# --------------------------
-GROQ_KEY = st.secrets["GROQ_API_KEY"]
-TAVILY_KEY = st.secrets["TAVILY_API_KEY"]
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+TAVILY_API_KEY = st.secrets["TAVILY_API_KEY"]
 
-client = Groq(api_key=GROQ_KEY)
-tavily = TavilyClient(api_key=TAVILY_KEY)
+client = Groq(api_key=GROQ_API_KEY)
+tavily = TavilyClient(api_key=TAVILY_API_KEY)
 
-PDF_PATH = "data/manual.pdf"
+# YOUR REAL PDF LOCATION
+PDF_PATH = "Zeeshan_Chatbot_Company_Manual.pdf"
 
-
-# --------------------------
-# LOAD PDF
-# --------------------------
+# -------------------- LOAD PDF --------------------
 @st.cache_data
-def load_pdf():
+def load_pdf_text():
     text = ""
     with pdfplumber.open(PDF_PATH) as pdf:
         for page in pdf.pages:
-            t = page.extract_text()
-            if t:
-                text += t + "\n"
+            tx = page.extract_text()
+            if tx:
+                text += tx + "\n"
     return text
 
+pdf_text = load_pdf_text()
 
-pdf_text = load_pdf()
-
-
-# --------------------------
-# BASIC RETRIEVAL
-# --------------------------
+# -------------------- RETRIEVAL --------------------
 def retrieve_from_pdf(query):
-    for line in pdf_text.split("\n"):
-        if query.lower() in line.lower():
-            return line
-    return "No relevant PDF data found."
+    lines = pdf_text.split("\n")
+    matches = [line for line in lines if query.lower() in line.lower()]
+    return "\n".join(matches[:5]) if matches else "No match found in PDF."
 
+# -------------------- WEB SEARCH --------------------
+def search_web(query):
+    result = tavily.search(query=query, max_results=3)
+    if "results" not in result:
+        return "No live data found."
+    text = "\n".join([item["content"] for item in result["results"]])
+    return text
 
-# --------------------------
-# INTERNET SEARCH (TAVILY)
-# --------------------------
-def web_search(q):
-    try:
-        res = tavily.search(query=q, max_results=4)
-        return "\n".join([r["content"] for r in res["results"]])
-    except:
-        return "Internet search unavailable."
-
-
-# --------------------------
-# GENERATE ANSWER (GROQ)
-# --------------------------
+# -------------------- AI ANSWER --------------------
 def generate_answer(user_q):
     pdf_context = retrieve_from_pdf(user_q)
-    web_context = web_search(user_q)
+    web_context = search_web(user_q)
 
-    prompt = f"""
-Use ALL of the following sources to answer:
+    system_prompt = f"""
+You are Zeeshan ka Chatbot.
+Use BOTH:
+1. The PDF knowledge (company manual)
+2. Live Internet updates (via Tavily)
 
-📘 PDF Knowledge:
+PDF CONTEXT:
 {pdf_context}
 
-🌐 Internet Search:
+WEB CONTEXT:
 {web_context}
 
-💡 If PDF or internet do not have the answer, use your own intelligence.
-
-User Question: {user_q}
+Give a helpful answer.
 """
 
     response = client.chat.completions.create(
-        model="llama3-8b",     # ✔ WORKING MODEL
+        model="mixtral-8x7b-32768",
         messages=[
-            {"role": "system", "content": "You are Zeeshan's RAG chatbot. Be accurate, friendly, updated."},
-            {"role": "user", "content": prompt},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_q}
         ]
     )
 
     return response.choices[0].message["content"]
 
+# -------------------- UI --------------------
+st.title("🤖 Zeeshan ka Chatbot")
 
-# --------------------------
-# CHAT UI
-# --------------------------
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-
 with st.form("chat_form", clear_on_submit=True):
-    user_input = st.text_input("Ask anything:")
+    user_input = st.text_input("Ask something:")
     send = st.form_submit_button("Send")
 
 if send and user_input.strip():
     answer = generate_answer(user_input)
-
     st.session_state.chat.append(("You", user_input))
     st.session_state.chat.append(("Bot", answer))
 
-
-# --------------------------
-# DISPLAY CHAT MESSAGES
-# --------------------------
+# -------------------- DISPLAY CHAT --------------------
 st.write("---")
-for sender, message in st.session_state.chat:
+for sender, msg in st.session_state.chat:
     if sender == "You":
-        st.markdown(f"🧑 **You:** {message}")
+        st.markdown(f"**🧑 You:** {msg}")
     else:
-        st.markdown(f"🤖 **Bot:** {message}")
+        st.markdown(f"**🤖 Zeeshan ka Chatbot:** {msg}")
