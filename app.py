@@ -1,18 +1,19 @@
 import streamlit as st
 import pdfplumber
-import json
 import os
-from openai import OpenAI
+import pickle
 import numpy as np
+from openai import OpenAI
 
 st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
 
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
-EMBEDDINGS_FILE = "data/pdf_embeddings.json"
+EMBED_CACHE = "embeddings_cache.pkl"
 
-# -------------------- LOAD PDF --------------------
+
+# ------------------------ LOAD PDF ------------------------
 @st.cache_data
 def load_pdf_text():
     text = ""
@@ -25,96 +26,94 @@ def load_pdf_text():
 
 pdf_text = load_pdf_text()
 
-# -------------------- SPLIT PDF --------------------
-def chunk_text(text, size=500):
+
+# ------------------------ CHUNK PDF ------------------------
+def chunk_text(text, size=400):
     words = text.split()
     return [" ".join(words[i:i+size]) for i in range(0, len(words), size)]
 
 chunks = chunk_text(pdf_text)
 
-# -------------------- CREATE EMBEDDINGS ONCE --------------------
-def generate_embeddings_once():
-    """Creates embeddings only ONCE and saves locally."""
-    if os.path.exists(EMBEDDINGS_FILE):
-        with open(EMBEDDINGS_FILE, "r") as f:
-            return json.load(f)
 
-    st.warning("📌 First-time setup: Creating embeddings...")
-
-    embeddings = []
-    for chunk in chunks:
-        response = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=chunk
-        )
-        emb = response.data[0].embedding
-        embeddings.append(emb)
-
-    with open(EMBEDDINGS_FILE, "w") as f:
-        json.dump(embeddings, f)
-
-    return embeddings
-
-embeddings = generate_embeddings_once()
-
-# -------------------- FIND BEST MATCH --------------------
-def search_pdf(query):
-    """Find closest chunk using cosine similarity."""
-    query_emb = client.embeddings.create(
+# ------------------------ CREATE OR LOAD EMBEDDINGS ------------------------
+def get_embedding(text):
+    res = client.embeddings.create(
         model="text-embedding-3-small",
-        input=query
-    ).data[0].embedding
+        input=text
+    )
+    return np.array(res.data[0].embedding)
 
-    scores = []
-    for i, emb in enumerate(embeddings):
-        emb = np.array(emb)
-        q = np.array(query_emb)
-        score = np.dot(emb, q) / (np.linalg.norm(emb) * np.linalg.norm(q))
-        scores.append((score, i))
 
-    scores.sort(reverse=True)
-    best_chunk = chunks[scores[0][1]]
-    return best_chunk
+def load_or_create_embeddings():
+    if os.path.exists(EMBED_CACHE):
+        return pickle.load(open(EMBED_CACHE, "rb"))
 
-# -------------------- AI ANSWERING --------------------
+    st.warning("⏳ First-time setup: Creating embeddings...")
+
+    embs = [get_embedding(ch) for ch in chunks]
+
+    pickle.dump(embs, open(EMBED_CACHE, "wb"))
+    return embs
+
+
+embeddings = load_or_create_embeddings()
+
+
+# ------------------------ FIND BEST MATCH ------------------------
+def find_best_context(query):
+    q_emb = get_embedding(query)
+
+    sims = [np.dot(q_emb, e) / (np.linalg.norm(q_emb) * np.linalg.norm(e))
+            for e in embeddings]
+
+    best_idx = int(np.argmax(sims))
+    return chunks[best_idx]
+
+
+# ------------------------ AI ANSWER ------------------------
 def get_answer(question):
-    context = search_pdf(question)
+    context = find_best_context(question)
 
-    prompt = f"""
+    system_prompt = f"""
 You are Zeeshan ka Chatbot.
 
-Use the PDF information **if relevant**, BUT also use **your updated 2024 knowledge**.
+Use the PDF information ONLY when relevant.
+If the PDF lacks the answer (like current PM), then use your own updated knowledge.
 
-PDF REFERENCE:
-\"\"\"
+PDF CONTEXT:
 {context}
-\"\"\"
 """
 
     res = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
-            {"role": "system", "content": prompt},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": question}
         ]
     )
+
     return res.choices[0].message["content"]
 
-# -------------------- UI --------------------
-st.title("🤖 Zeeshan ka Chatbot (RAG + AI)")
+
+# ------------------------ UI SETUP ------------------------
+st.title("🤖 Zeeshan ka Chatbot")
 
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-with st.form("ask_form", clear_on_submit=True):
-    question = st.text_input("Ask something:")
+
+# ------------------------ INPUT FORM ------------------------
+with st.form("chat_form", clear_on_submit=True):
+    user_input = st.text_input("Ask something:")
     submitted = st.form_submit_button("Send")
 
-if submitted and question.strip():
-    answer = get_answer(question)
-    st.session_state.chat.append(("You", question))
-    st.session_state.chat.append(("Bot", answer))
+if submitted and user_input.strip():
+    ans = get_answer(user_input)
+    st.session_state.chat.append(("You", user_input))
+    st.session_state.chat.append(("Bot", ans))
 
+
+# ------------------------ DISPLAY CHAT ------------------------
 st.write("---")
 for sender, msg in st.session_state.chat:
     if sender == "You":
