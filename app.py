@@ -83,50 +83,43 @@ def llama_chat(messages):
         return "⚠️ Groq API Error:\n" + str(result)
 
 
-# -------------------- RAG + TODAY'S INFO LOGIC --------------------
+# -------------------- RAG + UPDATED INFO (NO SEARCHING TEXT) --------------------
 def get_answer(question: str, history):
     context = retrieve_context(question)
     today = datetime.datetime.now().strftime("%d %B %Y (%Y)")
-
-    # Check if PDF has meaningful info
     pdf_strength = len(context.strip())
 
     if pdf_strength < 50:
-        # PDF does NOT contain meaningful answer → use today's updated info
+        # PDF does not contain relevant information → use AI updated knowledge
         system_prompt = f"""
-You are **Zeeshan ka Chatbot (RAG + Updated Info)**.
+You are Zeeshan ka Chatbot.
 
-The PDF does NOT contain relevant information for this question.
-
-So answer using:
-- Your updated knowledge (today = {today})
-- 2024–2025 real-time facts
-- Clear and helpful explanation.
-
-Do NOT limit your answer to 2023 information.
+Rules:
+- Give clear and direct answers.
+- Use your updated general knowledge (today = {today}).
+- Do NOT say anything about "searching", "checking", "researching", or "not knowing".
+- Never restrict information to the year 2023.
 """
     else:
-        # PDF HAS good info → use RAG first but allow updated info too
+        # PDF has useful context → use it first, but allow updated info too
         system_prompt = f"""
-You are **Zeeshan ka Chatbot**.
+You are Zeeshan ka Chatbot.
 
-Use the following PDF context as your primary source.
-If the question requires updated info (2024–2025), include that as well.
+Use the following PDF text as your main reference. 
+If updated information (today = {today}) is needed, include it naturally.
 
-Today's date: {today}
-
-PDF CONTEXT:
+PDF Context:
 ---------------------
 {context}
 ---------------------
 
 Rules:
-- PDF → first priority
-- Updated info → allowed when needed
-- Never restrict answers to 2023 only
+- Provide confident and direct answers.
+- Do NOT say "I am searching" or "I am researching".
+- Never limit your knowledge to only 2023.
 """
 
-    # Prepare messages
+    # Build message list
     messages = [{"role": "system", "content": system_prompt}]
     
     for m in history[-6:]:
@@ -143,13 +136,13 @@ st.title("🤖 Zeeshan ka Chatbot – RAG + Updated Info (Groq)")
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant",
-         "content": "Assalam o Alaikum! 👋 Main **Zeeshan ka Chatbot** hoon. "
-                    "PDF + AI dono mix karta hoon. Updated 2025 info bhi deta hoon!"}
+         "content": "Assalam o Alaikum! 👋 Main Zeeshan ka Chatbot hoon. "
+                    "PDF + updated AI knowledge dono use karta hoon."}
     ]
 
-# Display chat history
+# Display chat messages
 for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
+    with st.chat_message(msg["role"]:
         st.markdown(msg["content"])
 
 # User input
