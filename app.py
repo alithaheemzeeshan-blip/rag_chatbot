@@ -1,29 +1,29 @@
 import streamlit as st
-import pdfplumber
-import json
-import os
-import numpy as np
 from groq import Groq
 from tavily import TavilyClient
+import pdfplumber
 
-# -----------------------------------------------------------
-# SETUP
-# -----------------------------------------------------------
-st.set_page_config(page_title="Zeeshan RAG Chatbot", layout="centered")
+# --------------------------
+# PAGE SETTINGS
+# --------------------------
+st.set_page_config(page_title="Zeeshan ka Smart RAG Chatbot", layout="centered")
+st.title("🤖 Zeeshan ka Smart RAG Chatbot")
 
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "YOUR_GROQ_API_KEY")
-TAVILY_API_KEY = st.secrets.get("TAVILY_API_KEY", "YOUR_TAVILY_API_KEY")
+# --------------------------
+# LOAD API KEYS
+# --------------------------
+GROQ_KEY = st.secrets["GROQ_API_KEY"]
+TAVILY_KEY = st.secrets["TAVILY_API_KEY"]
 
-client = Groq(api_key=GROQ_API_KEY)
-tavily = TavilyClient(api_key=TAVILY_API_KEY)
+client = Groq(api_key=GROQ_KEY)
+tavily = TavilyClient(api_key=TAVILY_KEY)
 
-PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
-EMBED_FILE = "embeddings.json"
+PDF_PATH = "data/manual.pdf"
 
 
-# -----------------------------------------------------------
-# LOAD PDF TEXT
-# -----------------------------------------------------------
+# --------------------------
+# LOAD PDF
+# --------------------------
 @st.cache_data
 def load_pdf():
     text = ""
@@ -38,118 +38,83 @@ def load_pdf():
 pdf_text = load_pdf()
 
 
-# -----------------------------------------------------------
-# LOCAL EMBEDDINGS (AVOID FAILING API CALLS)
-# -----------------------------------------------------------
-def simple_local_embedding(text):
-    """Cheap, offline embedding (no API, no cost)."""
-    words = text.lower().split()
-    vec = np.zeros(300)
-
-    for w in words:
-        vec[hash(w) % 300] += 1
-
-    return vec.tolist()
-
-
-# -----------------------------------------------------------
-# BUILD / LOAD EMBEDDINGS
-# -----------------------------------------------------------
-def build_or_load_embeddings():
-    if os.path.exists(EMBED_FILE):
-        return json.load(open(EMBED_FILE, "r"))
-
-    chunks = [c for c in pdf_text.split("\n") if c.strip()]
-    data = [{"text": c, "embedding": simple_local_embedding(c)} for c in chunks]
-
-    json.dump(data, open(EMBED_FILE, "w"))
-    return data
-
-
-embeddings = build_or_load_embeddings()
-
-
-# -----------------------------------------------------------
-# RAG: FIND BEST PDF MATCH
-# -----------------------------------------------------------
+# --------------------------
+# BASIC RETRIEVAL
+# --------------------------
 def retrieve_from_pdf(query):
-    q_emb = simple_local_embedding(query)
-
-    best_score = -1
-    best_text = "No relevant PDF content found."
-
-    for entry in embeddings:
-        score = np.dot(q_emb, entry["embedding"])
-        if score > best_score:
-            best_score = score
-            best_text = entry["text"]
-
-    return best_text
+    for line in pdf_text.split("\n"):
+        if query.lower() in line.lower():
+            return line
+    return "No relevant PDF data found."
 
 
-# -----------------------------------------------------------
-# TAVILY INTERNET SEARCH
-# -----------------------------------------------------------
-def internet_search(query):
+# --------------------------
+# INTERNET SEARCH (TAVILY)
+# --------------------------
+def web_search(q):
     try:
-        result = tavily.search(query=query, max_results=3)
-        return result.get("results", [])
-    except Exception:
-        return []
+        res = tavily.search(query=q, max_results=4)
+        return "\n".join([r["content"] for r in res["results"]])
+    except:
+        return "Internet search unavailable."
 
 
-# -----------------------------------------------------------
-# GENERATE ANSWER USING BOTH RAG + TAVILY + GROQ
-# -----------------------------------------------------------
+# --------------------------
+# GENERATE ANSWER (GROQ)
+# --------------------------
 def generate_answer(user_q):
-
-    # 1️⃣ RAG retrieval
     pdf_context = retrieve_from_pdf(user_q)
+    web_context = web_search(user_q)
 
-    # 2️⃣ Live internet data
-    search_results = internet_search(user_q)
-    search_text = "\n".join([r["content"] for r in search_results]) if search_results else "No live data."
+    prompt = f"""
+Use ALL of the following sources to answer:
 
-    # 3️⃣ Combine everything for Groq
-    system_prompt = f"""
-You are a hybrid RAG chatbot that uses PDF context AND real-time internet data.
-
-PDF CONTEXT:
+📘 PDF Knowledge:
 {pdf_context}
 
-LIVE INTERNET DATA:
-{search_text}
+🌐 Internet Search:
+{web_context}
 
-Use both sources when answering. 
-If information conflicts, prefer the *latest internet data*.
+💡 If PDF or internet do not have the answer, use your own intelligence.
+
+User Question: {user_q}
 """
 
     response = client.chat.completions.create(
-        model="llama3-8b-8192",
+        model="llama3-8b",     # ✔ WORKING MODEL
         messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_q}
+            {"role": "system", "content": "You are Zeeshan's RAG chatbot. Be accurate, friendly, updated."},
+            {"role": "user", "content": prompt},
         ]
     )
 
     return response.choices[0].message["content"]
 
 
-# -----------------------------------------------------------
-# UI
-# -----------------------------------------------------------
-st.title("🤖 Zeeshan's Advanced RAG Chatbot (PDF + Internet)")
-
+# --------------------------
+# CHAT UI
+# --------------------------
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-user_input = st.text_input("Ask anything:")
 
-if st.button("Send") and user_input.strip():
+with st.form("chat_form", clear_on_submit=True):
+    user_input = st.text_input("Ask anything:")
+    send = st.form_submit_button("Send")
+
+if send and user_input.strip():
     answer = generate_answer(user_input)
+
     st.session_state.chat.append(("You", user_input))
     st.session_state.chat.append(("Bot", answer))
 
+
+# --------------------------
+# DISPLAY CHAT MESSAGES
+# --------------------------
 st.write("---")
-for sender, msg in st.session_state.chat:
-    st.markdown(f"**{sender}:** {msg}")
+for sender, message in st.session_state.chat:
+    if sender == "You":
+        st.markdown(f"🧑 **You:** {message}")
+    else:
+        st.markdown(f"🤖 **Bot:** {message}")
