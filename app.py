@@ -8,7 +8,7 @@ st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
 
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
-MODEL_NAME = "llama3-8b-8192"   # Groq Llama 3 model
+MODEL_NAME = "llama-3.1-8b-instant"   # UPDATED WORKING MODEL
 
 
 # -------------------- LOAD + CHUNK PDF --------------------
@@ -89,9 +89,9 @@ def get_answer(question: str, history):
 
     system_prompt = f"""
 You are **Zeeshan ka Chatbot**.
-You answer using PDF context first.
-If PDF does not contain the answer, use your general knowledge.
-Warn the user if real-time information may be outdated.
+Use PDF context first.
+If PDF has no answer, use AI knowledge.
+If question is real-time based, warn that information may be outdated.
 
 PDF CONTEXT:
 ---------------------
@@ -110,16 +110,16 @@ PDF CONTEXT:
 
 
 # -------------------- STREAMLIT UI --------------------
-st.title("🤖 Zeeshan ka Chatbot – LLaMA Powered")
+st.title("🤖 Zeeshan ka Chatbot – LLaMA Powered (Groq)")
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant",
          "content": "Assalam o Alaikum! 👋 Main **Zeeshan ka Chatbot** hoon. "
-                    "PDF + AI dono ka mix use karta hoon. Kuch bhi pooch lo!"}
+                    "PDF + AI dono mix karta hoon. Kuch bhi pooch lo!"}
     ]
 
-# Display chat
+# Display messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
