@@ -1,14 +1,14 @@
 import streamlit as st
 import pdfplumber
 import requests
-import textwrap
+import datetime
 
 # -------------------- BASIC SETUP --------------------
 st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
 
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
-MODEL_NAME = "llama-3.1-8b-instant"   # UPDATED WORKING MODEL
+MODEL_NAME = "llama-3.1-8b-instant"
 
 
 # -------------------- LOAD + CHUNK PDF --------------------
@@ -53,13 +53,13 @@ def retrieve_context(query: str, top_k: int = 3):
             scored.append((score, ch))
 
     if not scored:
-        return "\n\n".join(pdf_chunks[:top_k])
+        return ""
 
     scored.sort(reverse=True, key=lambda x: x[0])
     return "\n\n".join([c for _, c in scored[:top_k]])
 
 
-# -------------------- CALL GROQ API --------------------
+# -------------------- GROQ API CALL --------------------
 def llama_chat(messages):
     url = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -83,24 +83,52 @@ def llama_chat(messages):
         return "⚠️ Groq API Error:\n" + str(result)
 
 
-# -------------------- RAG ANSWER --------------------
+# -------------------- RAG + TODAY'S INFO LOGIC --------------------
 def get_answer(question: str, history):
     context = retrieve_context(question)
+    today = datetime.datetime.now().strftime("%d %B %Y (%Y)")
 
-    system_prompt = f"""
+    # Check if PDF has meaningful info
+    pdf_strength = len(context.strip())
+
+    if pdf_strength < 50:
+        # PDF does NOT contain meaningful answer → use today's updated info
+        system_prompt = f"""
+You are **Zeeshan ka Chatbot (RAG + Updated Info)**.
+
+The PDF does NOT contain relevant information for this question.
+
+So answer using:
+- Your updated knowledge (today = {today})
+- 2024–2025 real-time facts
+- Clear and helpful explanation.
+
+Do NOT limit your answer to 2023 information.
+"""
+    else:
+        # PDF HAS good info → use RAG first but allow updated info too
+        system_prompt = f"""
 You are **Zeeshan ka Chatbot**.
-Use PDF context first.
-If PDF has no answer, use AI knowledge.
-If question is real-time based, warn that information may be outdated.
+
+Use the following PDF context as your primary source.
+If the question requires updated info (2024–2025), include that as well.
+
+Today's date: {today}
 
 PDF CONTEXT:
 ---------------------
 {context}
 ---------------------
+
+Rules:
+- PDF → first priority
+- Updated info → allowed when needed
+- Never restrict answers to 2023 only
 """
 
+    # Prepare messages
     messages = [{"role": "system", "content": system_prompt}]
-
+    
     for m in history[-6:]:
         messages.append(m)
 
@@ -110,16 +138,16 @@ PDF CONTEXT:
 
 
 # -------------------- STREAMLIT UI --------------------
-st.title("🤖 Zeeshan ka Chatbot – LLaMA Powered (Groq)")
+st.title("🤖 Zeeshan ka Chatbot – RAG + Updated Info (Groq)")
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant",
          "content": "Assalam o Alaikum! 👋 Main **Zeeshan ka Chatbot** hoon. "
-                    "PDF + AI dono mix karta hoon. Kuch bhi pooch lo!"}
+                    "PDF + AI dono mix karta hoon. Updated 2025 info bhi deta hoon!"}
     ]
 
-# Display messages
+# Display chat history
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -129,6 +157,7 @@ user_input = st.chat_input("Apna sawal likho...")
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
+
     with st.chat_message("user"):
         st.markdown(user_input)
 
