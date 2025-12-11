@@ -4,7 +4,7 @@ import requests
 import datetime
 
 # -------------------- BASIC SETUP --------------------
-st.set_page_config(page_title="Zeeshan ka Chatbot", layout="centered")
+st.set_page_config(page_title="Z&J ka Chatbot", layout="centered")
 
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 PDF_PATH = "data/Zeeshan_Chatbot_Company_Manual.pdf"
@@ -92,7 +92,7 @@ def get_answer(question: str, history):
     if pdf_strength < 50:
         # PDF does not contain relevant information → use AI updated knowledge
         system_prompt = f"""
-You are Zeeshan ka Chatbot.
+You are Z&J ka Chatbot.
 
 Rules:
 - Give clear and direct answers.
@@ -103,7 +103,7 @@ Rules:
     else:
         # PDF has useful context → use it first, but allow updated info too
         system_prompt = f"""
-You are Zeeshan ka Chatbot.
+You are Z&J ka Chatbot.
 
 Use the following PDF text as your main reference. 
 If updated information (today = {today}) is needed, include it naturally.
@@ -131,13 +131,13 @@ Rules:
 
 
 # -------------------- STREAMLIT UI --------------------
-st.title("🤖 Zeeshan ka Chatbot – RAG + Updated Info (Groq)")
+st.title("🤖 Z&J ka Chatbot")
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "assistant",
-         "content": "Assalam o Alaikum! 👋 Main Zeeshan ka Chatbot hoon. "
-                    "PDF + updated AI knowledge dono use karta hoon."}
+         "content": "Assalam o Alaikum! 👋 Main Z&J ka Chatbot hoon. "
+                    "Jo Bhi Phouchna Bindaas Phoucho Mai Ho Na Apki Madad Kay Liye"}
     ]
 
 # Display chat messages
@@ -160,4 +160,5 @@ if user_input:
         st.markdown(answer)
 
     st.session_state.messages.append({"role": "assistant", "content": answer})
+
 
